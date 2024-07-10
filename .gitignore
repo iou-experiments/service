@@ -1,0 +1,32 @@
+# Ignore any file or directory containing the word "target"
+*target*
+
+# Rust/Cargo specific ignores
+/target
+**/*.rs.bk
+**/*.rs.bk
+**/*.log
+**/*.d
+**/*.dSYM
+/.cargo
+/.rustup
+/*.rs.bk
+
+# Temporary files
+*.swp
+*.swo
+*.bak
+*.tmp
+*.old
+*.save
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
