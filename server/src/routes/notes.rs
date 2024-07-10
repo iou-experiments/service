@@ -1,3 +1,5 @@
+use crate::crypto::note::Note;
+
 pub async fn get_note() -> String {
   "got note!".to_owned()
 }
