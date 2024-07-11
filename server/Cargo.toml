@@ -21,3 +21,6 @@ axum.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+mongodb.workspace = true
+bson.workspace = true
+chrono.workspace = true
