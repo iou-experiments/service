@@ -7,6 +7,6 @@ use tokio;
 #[tokio::main]
 async fn main() {
    let mongo = IOUServiceDB::init().await;
-   run().await;
+   run(mongo).await;
 }
 

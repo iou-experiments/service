@@ -1,8 +1,8 @@
-use axum::http::Error;
-use bson::{doc, oid, Array, Document};
+use bson::{doc, oid};
 use mongodb::{ options::{ FindOneOptions, ClientOptions, ServerApi, ServerApiVersion }, Client, Collection };
 use serde::{Deserialize, Serialize};
 use std::env;
+use serde_json::to_string;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct User {
@@ -12,8 +12,8 @@ pub struct User {
   pub nonce: Option<i128>,
   pub username: Option<String>,
   pub pubkey: Option<String>,
-  pub messages: Option<Vec<()>>,
-  pub notes: Option<Vec<()>>
+  pub messages: Option<Vec<String>>,
+  pub notes: Option<Vec<String>>
 }
 
 pub struct IOUServiceDB {
@@ -26,14 +26,12 @@ pub struct IOUServiceDB {
 impl IOUServiceDB {
   pub async fn init() -> Self {
     let uri = env::var("MONGODB_URI").expect("You must set the MONGODB_URI environment var!");
-    println!("{}", uri);
     let mut client_options = ClientOptions::parse(uri).await.unwrap();
     let server_api = ServerApi::builder().version(ServerApiVersion::V1).build();
     client_options.server_api = Some(server_api);
     let client = Client::with_options(client_options).unwrap();
     let db = client.database("iou");
     let users = db.collection("users");
-
     let note_history = db.collection("note_history");
     let messages = db.collection("messages");
     let nullifiers = db.collection("nullifiers");

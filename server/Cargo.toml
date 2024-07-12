@@ -1,9 +1,11 @@
 [package]
 name = "service_http"
-
 edition.workspace = true
 license.workspace = true
 version.workspace = true
+
+[[bin]]
+path = "src/main.rs"
 
 [dependencies]
 ark-bn254.workspace = true
