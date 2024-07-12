@@ -1,6 +1,11 @@
+use ark_crypto_primitives::Error;
 use bson::{doc, Document};
-use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection };
+use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection, error::Error as MongoError};
 use serde::{Deserialize, Serialize};
+use crate::routes::schema::CreateUserSchema;
+use crate::routes::response::UserSingleResponse;
+use mongodb::options::{FindOneAndUpdateOptions, FindOptions, IndexOptions, ReturnDocument};
+use mongodb::IndexModel;
 use std::env;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -17,6 +22,7 @@ pub struct User {
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
+  pub users_collection: Collection<User>,
   pub users: Collection<Document>,
   // pub note_history: Collection<()>,
   // pub  messages: Collection<()>,
@@ -31,10 +37,12 @@ impl IOUServiceDB {
     client_options.server_api = Some(server_api);
     let client = Client::with_options(client_options).unwrap();
     let db = client.database("iou");
-    let users = db.collection("users");
+    let users = db.collection::<Document>("users");
+    let users_collection = db.collection("users");
 
     Self {
       users,
+      users_collection,
       // note_history,
       // messages,
       // nullifiers
@@ -49,7 +57,53 @@ impl IOUServiceDB {
 
     self.doc_to_user(user.unwrap().unwrap())
   }
-  
+
+  pub async fn create_user(&self, body: &CreateUserSchema) -> Result<UserSingleResponse, Error> {
+    let document = self.create_user_document(body);
+
+    let options = IndexOptions::builder().unique(true).build();
+    let index = IndexModel::builder()
+        .keys(doc! {"title": 1})
+        .options(options)
+        .build();
+
+    match self.users.create_index(index, None).await {
+        Ok(_) => {}
+        Err(e) => return Err(Error::from(e)),
+    };
+
+    let insert_result = match self.users_collection.insert_one(document, None).await {
+        Ok(result) => result,
+        Err(e) => {
+            if e.to_string()
+                .contains("E11000 duplicate key error collection")
+            {
+              return Err(Error::from(e));
+            }
+            return Err(Error::from(e));
+        }
+    };
+
+    let new_id = insert_result
+        .inserted_id
+        .as_object_id()
+        .expect("issue with new _id");
+
+    let user_doc = match self
+        .users_collection
+        .find_one(doc! {"_id": new_id}, None)
+        .await
+    {
+        Ok(Some(doc)) => doc,
+        Ok(None) => return "f",
+        Err(e) => return Err(Error::from(e))
+    };
+
+    Ok(UserSingleResponse {
+        status: "success",
+        user: self.doc_to_user(user_doc)
+    })
+}
 
   fn doc_to_user(&self, doc: Document) -> User {
     let user_response = User {
@@ -65,5 +119,18 @@ impl IOUServiceDB {
     };
 
     user_response
+  }
+
+  fn create_user_document(&self, body: &CreateUserSchema) -> Document {
+    let document = doc! {
+      "username": body.username,
+      "pubkey": body.pubkey,
+      "nonce": body.nonce,
+      "messages": body.messages,
+      "notes": body.notes,
+      "hasDoubleSpent": body.hasDoubleSpent
+    };
+  
+    document
   }
 }
