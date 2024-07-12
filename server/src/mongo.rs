@@ -1,26 +1,26 @@
-use bson::{doc, oid};
-use mongodb::{ options::{ FindOneOptions, ClientOptions, ServerApi, ServerApiVersion }, Client, Collection };
+use bson::{doc, Document};
+use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection };
 use serde::{Deserialize, Serialize};
 use std::env;
-use serde_json::to_string;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct User {
   #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
-  pub id: Option<i128>,
+  pub id: Option<String>,
   pub hasDoubleSpent: Option<bool>,
-  pub nonce: Option<i128>,
+  pub nonce: Option<String>,
   pub username: Option<String>,
   pub pubkey: Option<String>,
   pub messages: Option<Vec<String>>,
   pub notes: Option<Vec<String>>
 }
 
+#[derive(Debug, Clone)]
 pub struct IOUServiceDB {
-  pub users: Collection<User>,
-  pub note_history: Collection<()>,
-  pub  messages: Collection<()>,
-  pub nullifiers: Collection<()>
+  pub users: Collection<Document>,
+  // pub note_history: Collection<()>,
+  // pub  messages: Collection<()>,
+  // pub nullifiers: Collection<()>
 }
 
 impl IOUServiceDB {
@@ -32,41 +32,38 @@ impl IOUServiceDB {
     let client = Client::with_options(client_options).unwrap();
     let db = client.database("iou");
     let users = db.collection("users");
-    let note_history = db.collection("note_history");
-    let messages = db.collection("messages");
-    let nullifiers = db.collection("nullifiers");
 
     Self {
       users,
-      note_history,
-      messages,
-      nullifiers
+      // note_history,
+      // messages,
+      // nullifiers
     }
   }
 
-  pub async fn create_user(&self, user: User) -> Result<crate::mongo::oid::ObjectId, &str> {
-    // check if the username exists already in the database
-    let query = doc! { "username": &user.username };
-    let options = FindOneOptions::builder()
-        .projection(doc! {"_id": 1})
-        .build();
-    match self.users.find_one(query).with_options(options).await.unwrap() {
-        Some(_) => return Err("User exists"),
-        None => (),
+  pub async fn get_user(&self, username: &str) -> User{
+    let user = self
+    .users
+    .find_one(doc! {"username": username}, None)
+    .await;
+
+    self.doc_to_user(user.unwrap().unwrap())
+  }
+  
+
+  fn doc_to_user(&self, doc: Document) -> User {
+    let user_response = User {
+      id: doc.get_str("_id").ok().map(|s| s.to_owned()),
+        hasDoubleSpent: doc.get_bool("hasDoubleSpent").ok(),
+        nonce: doc.get_str("nonce").ok().map(|s| s.to_owned()),
+        username: doc.get_str("username").ok().map(|s| s.to_owned()),
+        pubkey: doc.get_str("pubkey").ok().map(|s| s.to_owned()),
+        messages: doc.get_array("messages").ok().map(|arr| 
+            arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
+        notes: doc.get_array("notes").ok().map(|arr| 
+            arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
     };
 
-    // insert the user into the collection
-    match self.users.insert_one(&user).await {
-        Ok(result) => Ok(result.inserted_id.as_object_id().unwrap()),
-        Err(e) => Err("Err"),
-    }
-}
-
-
-  pub async fn get_user(&self, username: &str) -> std::option::Option<User> {
-    self.users
-      .find_one(doc! { "username": "sero" })
-      .await
-      .unwrap()
+    user_response
   }
 }
