@@ -1,4 +1,5 @@
 use ark_crypto_primitives::Error;
+use crate::routes::error::MyError::*;
 use bson::{doc, Document};
 use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection, error::Error as MongoError};
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,7 @@ use crate::routes::response::UserSingleResponse;
 use mongodb::options::{FindOneAndUpdateOptions, FindOptions, IndexOptions, ReturnDocument};
 use mongodb::IndexModel;
 use std::env;
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct User {
@@ -122,15 +124,18 @@ impl IOUServiceDB {
   }
 
   fn create_user_document(&self, body: &CreateUserSchema) -> Document {
-    let document = doc! {
-      "username": body.username,
-      "pubkey": body.pubkey,
-      "nonce": body.nonce,
-      "messages": body.messages,
-      "notes": body.notes,
-      "hasDoubleSpent": body.hasDoubleSpent
-    };
-  
-    document
+    // let document = doc! {
+    //   "username": body.username,
+    //   "pubkey": body.pubkey,
+    //   "nonce": body.nonce,
+    //   "messages": body.messages,
+    //   "notes": body.notes,
+    //   "hasDoubleSpent": body.hasDoubleSpent
+    // };
+    let serialized_data = bson::to_bson(body).map_err(MongoSerializeBsonError).unwrap();
+    let document = serialized_data.as_document().unwrap();
+
+
+    Ok(document)
   }
 }

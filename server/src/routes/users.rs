@@ -14,13 +14,11 @@ pub async fn get_user_with_username(
 
 pub async fn create_user(Extension(db): Extension<IOUServiceDB>) -> Document {
 
-
   let new_doc = doc! {
     "username": "fred",
     "id": "2",
     "hasDoubleSpent": false,
     "nonce": "123",
-    "username": "fred",
     "pubkey": "123",
     "messages": ["123"],
     "notes": ["123"]

@@ -27,3 +27,4 @@ serde_json.workspace = true
 mongodb.workspace = true
 bson.workspace = true
 chrono.workspace = true
+thiserror.workspace = true 
