@@ -13,3 +13,11 @@ pub struct CreateUserSchema {
 pub struct UsernameRequest {
   pub username: String
 }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct NotesSchema {
+
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MessageSchema {
+
+}
