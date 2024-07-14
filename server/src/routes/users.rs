@@ -1,28 +1,36 @@
-use axum::{extract::Extension, Json};
-use bson::Document;
+use axum::{extract::Extension, http::StatusCode, Json};
 use crate::mongo::{IOUServiceDB, User};
+use super::{response::UserSingleResponse, schema::{CreateUserSchema, UsernameRequest}};
 use mongodb::bson::doc;
 
 #[axum::debug_handler]
 pub async fn get_user_with_username(
     Extension(db): Extension<IOUServiceDB>,
+    Json(payload): Json<UsernameRequest>
 ) -> Result<Json<User>, String> {
 
-    let user = db.get_user("sero").await;
-    Ok(Json(user))
+    let user_response = db.get_user(&payload.username).await;
+    Ok(Json(user_response.user))
 }
 
-pub async fn create_user(Extension(db): Extension<IOUServiceDB>) -> Document {
-
-  let new_doc = doc! {
-    "username": "fred",
-    "id": "2",
-    "hasDoubleSpent": false,
-    "nonce": "123",
-    "pubkey": "123",
-    "messages": ["123"],
-    "notes": ["123"]
+#[axum::debug_handler]
+pub async fn create_user(Extension(db): Extension<IOUServiceDB>, Json(payload): Json<CreateUserSchema>) -> Result<Json<UserSingleResponse>, StatusCode> {
+  println!("{}", "i am inside");
+  let new_user = CreateUserSchema {
+    username: payload.username,
+    pubkey: payload.pubkey,
+    nonce: payload.nonce,
+    messages: payload.messages,
+    notes: payload.notes,
+    hasDoubleSpent: payload.hasDoubleSpent,
+    id: payload.id,
   };
-  new_doc
-  // db.create_user(new_doc);
+  println!("{:#?}", new_user);
+  match db.create_user(&new_user).await {
+    Ok(user_response) => {
+      println!("{:#?}", user_response);
+      Ok(Json(user_response))
+    }
+    Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+  }
 }

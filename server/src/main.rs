@@ -1,5 +1,5 @@
-mod mongo;
-
+pub mod mongo;
+pub mod routes;
 use service_http::run;
 use tokio;
 

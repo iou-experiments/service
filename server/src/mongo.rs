@@ -1,10 +1,9 @@
 use ark_crypto_primitives::Error;
-use crate::routes::error::MyError::*;
+
 use bson::{doc, Document};
 use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection, error::Error as MongoError};
 use serde::{Deserialize, Serialize};
-use crate::routes::schema::CreateUserSchema;
-use crate::routes::response::UserSingleResponse;
+use crate::routes::{schema::CreateUserSchema, response::UserSingleResponse};
 use mongodb::options::{FindOneAndUpdateOptions, FindOptions, IndexOptions, ReturnDocument};
 use mongodb::IndexModel;
 use std::env;
@@ -51,7 +50,7 @@ impl IOUServiceDB {
     }
   }
 
-  pub async fn get_user(&self, username: &str) -> User{
+  pub async fn get_user(&self, username: &str) -> UserSingleResponse{
     let user = self
     .users
     .find_one(doc! {"username": username}, None)
@@ -63,18 +62,18 @@ impl IOUServiceDB {
   pub async fn create_user(&self, body: &CreateUserSchema) -> Result<UserSingleResponse, Error> {
     let document = self.create_user_document(body);
 
-    let options = IndexOptions::builder().unique(true).build();
+    let options: IndexOptions = IndexOptions::builder().unique(true).build();
     let index = IndexModel::builder()
-        .keys(doc! {"title": 1})
+        .keys(doc! {"title": 5})
         .options(options)
         .build();
-
-    match self.users.create_index(index, None).await {
+    println!("{:#?}", index);
+    let res = match self.users.create_index(index, None).await {
         Ok(_) => {}
         Err(e) => return Err(Error::from(e)),
     };
-
-    let insert_result = match self.users_collection.insert_one(document, None).await {
+    println!("{:#?}", res);
+    let insert_result = match self.users.insert_one(document, None).await {
         Ok(result) => result,
         Err(e) => {
             if e.to_string()
@@ -85,30 +84,30 @@ impl IOUServiceDB {
             return Err(Error::from(e));
         }
     };
-
+    println!("{:#?}", insert_result);
     let new_id = insert_result
         .inserted_id
         .as_object_id()
         .expect("issue with new _id");
 
     let user_doc = match self
-        .users_collection
+        .users
         .find_one(doc! {"_id": new_id}, None)
         .await
     {
         Ok(Some(doc)) => doc,
-        Ok(None) => return "f",
+        Ok(None) => return Err(Error::from("User not found after insertion")),
         Err(e) => return Err(Error::from(e))
     };
 
     Ok(UserSingleResponse {
         status: "success",
-        user: self.doc_to_user(user_doc)
+        user: self.doc_to_user(user_doc).user
     })
 }
 
-  fn doc_to_user(&self, doc: Document) -> User {
-    let user_response = User {
+  fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
+    let user = User {
       id: doc.get_str("_id").ok().map(|s| s.to_owned()),
         hasDoubleSpent: doc.get_bool("hasDoubleSpent").ok(),
         nonce: doc.get_str("nonce").ok().map(|s| s.to_owned()),
@@ -120,22 +119,22 @@ impl IOUServiceDB {
             arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
     };
 
-    user_response
+    UserSingleResponse {
+      status: "success",
+      user
+    }
   }
 
   fn create_user_document(&self, body: &CreateUserSchema) -> Document {
-    // let document = doc! {
-    //   "username": body.username,
-    //   "pubkey": body.pubkey,
-    //   "nonce": body.nonce,
-    //   "messages": body.messages,
-    //   "notes": body.notes,
-    //   "hasDoubleSpent": body.hasDoubleSpent
-    // };
-    let serialized_data = bson::to_bson(body).map_err(MongoSerializeBsonError).unwrap();
-    let document = serialized_data.as_document().unwrap();
-
-
-    Ok(document)
+    let user = doc! {
+      "username": body.username.clone(),
+      "pubkey": body.pubkey.clone(),
+      "nonce": body.nonce.clone(),
+      "messages": body.messages.clone(),
+      "notes": body.notes.clone(),
+      "hasDoubleSpent": body.hasDoubleSpent
+    };
+    
+    user
   }
 }
