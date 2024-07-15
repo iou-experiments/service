@@ -7,6 +7,7 @@ use crate::routes::{schema::CreateUserSchema, response::UserSingleResponse};
 use mongodb::options::IndexOptions;
 use mongodb::IndexModel;
 use std::env;
+use crate::routes::schema::{NoteSchema, NoteHistorySchema, MessageSchema, NoteNullifierSchema};
 
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -25,9 +26,15 @@ pub struct User {
 pub struct IOUServiceDB {
   pub users_collection: Collection<User>,
   pub users: Collection<Document>,
-  // pub note_history: Collection<()>,
-  // pub  messages: Collection<()>,
-  // pub nullifiers: Collection<()>
+  pub notes: Collection<Document>,
+  pub notes_collection: Collection<NoteSchema>,
+  pub note_history: Collection<Document>,
+  pub note_history_collection: Collection<NoteHistorySchema>,
+  pub messages: Collection<Document>,
+  pub messages_collection: Collection<MessageSchema>,
+  pub nullifiers: Collection<Document>,
+  pub nullifiers_collection: Collection<NoteNullifierSchema>,
+
 }
 
 impl IOUServiceDB {
@@ -37,16 +44,30 @@ impl IOUServiceDB {
     let server_api = ServerApi::builder().version(ServerApiVersion::V1).build();
     client_options.server_api = Some(server_api);
     let client = Client::with_options(client_options).unwrap();
+
     let db = client.database("iou");
     let users = db.collection::<Document>("users");
     let users_collection = db.collection("users");
+    let notes = db.collection::<Document>("notes");
+    let notes_collection = db.collection("notes");
+    let note_history = db.collection::<Document>("note_history");
+    let note_history_collection = db.collection("note_history");
+    let messages = db.collection::<Document>("messages");
+    let messages_collection = db.collection("messages");
+    let nullifiers = db.collection::<Document>("nullifiers");
+    let nullifiers_collection = db.collection("nullifiers");
 
     Self {
       users,
       users_collection,
-      // note_history,
-      // messages,
-      // nullifiers
+      notes,
+      notes_collection,
+      note_history,
+      note_history_collection,
+      messages,
+      messages_collection,
+      nullifiers,
+      nullifiers_collection,
     }
   }
 
