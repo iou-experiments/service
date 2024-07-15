@@ -1,5 +1,6 @@
 use axum::{extract::Extension, http::StatusCode, Json};
-use crate::mongo::{IOUServiceDB, User};
+use crate::mongo::IOUServiceDB;
+use crate::routes::schema::User;
 use super::{response::UserSingleResponse, schema::{CreateUserSchema, UsernameRequest}};
 use mongodb::bson::doc;
 

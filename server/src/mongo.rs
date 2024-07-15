@@ -2,25 +2,14 @@ use ark_crypto_primitives::Error;
 
 use bson::{doc, Document};
 use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection};
-use serde::{Deserialize, Serialize};
-use crate::routes::{response::{MessageSingleResponse, UserSingleResponse}, schema::{CreateUserSchema, MessageRequestSchema}};
+use crate::routes::{response::{MessageSingleResponse, UserSingleResponse}, schema::{CreateUserSchema, MessageRequestSchema, User}};
 use mongodb::options::IndexOptions;
 use mongodb::IndexModel;
 use std::env;
 use crate::routes::schema::{NoteSchema, NoteHistorySchema, MessageSchema, NoteNullifierSchema};
 use chrono::Utc;
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct User {
-  #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
-  pub id: Option<String>,
-  pub has_double_spent: Option<bool>,
-  pub nonce: Option<String>,
-  pub username: Option<String>,
-  pub pubkey: Option<String>,
-  pub messages: Option<Vec<String>>,
-  pub notes: Option<Vec<String>>
-}
+
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
@@ -34,7 +23,6 @@ pub struct IOUServiceDB {
   pub messages_collection: Collection<MessageSchema>,
   pub nullifiers: Collection<Document>,
   pub nullifiers_collection: Collection<NoteNullifierSchema>,
-
 }
 
 impl IOUServiceDB {

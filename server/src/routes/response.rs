@@ -1,4 +1,4 @@
-use crate::mongo::User;
+use crate::routes::schema::User;
 use serde::Serialize;
 use crate::routes::schema::MessageSchema;
 

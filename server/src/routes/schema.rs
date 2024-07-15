@@ -1,6 +1,18 @@
 use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct User {
+  #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
+  pub id: Option<String>,
+  pub has_double_spent: Option<bool>,
+  pub nonce: Option<String>,
+  pub username: Option<String>,
+  pub pubkey: Option<String>,
+  pub messages: Option<Vec<String>>,
+  pub notes: Option<Vec<String>>
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CreateUserSchema {
     pub username: String,
