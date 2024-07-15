@@ -1,10 +1,10 @@
 use ark_crypto_primitives::Error;
 
 use bson::{doc, Document};
-use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection, error::Error as MongoError};
+use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection};
 use serde::{Deserialize, Serialize};
 use crate::routes::{schema::CreateUserSchema, response::UserSingleResponse};
-use mongodb::options::{FindOneAndUpdateOptions, FindOptions, IndexOptions, ReturnDocument};
+use mongodb::options::IndexOptions;
 use mongodb::IndexModel;
 use std::env;
 
@@ -13,7 +13,7 @@ use std::env;
 pub struct User {
   #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
   pub id: Option<String>,
-  pub hasDoubleSpent: Option<bool>,
+  pub has_double_spent: Option<bool>,
   pub nonce: Option<String>,
   pub username: Option<String>,
   pub pubkey: Option<String>,
@@ -109,7 +109,7 @@ impl IOUServiceDB {
   fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
     let user = User {
       id: doc.get_str("_id").ok().map(|s| s.to_owned()),
-        hasDoubleSpent: doc.get_bool("hasDoubleSpent").ok(),
+        has_double_spent: doc.get_bool("has_double_spent").ok(),
         nonce: doc.get_str("nonce").ok().map(|s| s.to_owned()),
         username: doc.get_str("username").ok().map(|s| s.to_owned()),
         pubkey: doc.get_str("pubkey").ok().map(|s| s.to_owned()),
@@ -132,7 +132,7 @@ impl IOUServiceDB {
       "nonce": body.nonce.clone(),
       "messages": body.messages.clone(),
       "notes": body.notes.clone(),
-      "hasDoubleSpent": body.hasDoubleSpent
+      "has_double_spent": body.has_double_spent
     };
     
     user

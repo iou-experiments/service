@@ -22,7 +22,7 @@ pub async fn create_user(Extension(db): Extension<IOUServiceDB>, Json(payload): 
     nonce: payload.nonce,
     messages: payload.messages,
     notes: payload.notes,
-    hasDoubleSpent: payload.hasDoubleSpent,
+    has_double_spent: payload.has_double_spent,
     id: payload.id,
   };
   println!("{:#?}", new_user);
