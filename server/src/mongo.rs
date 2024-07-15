@@ -3,12 +3,12 @@ use ark_crypto_primitives::Error;
 use bson::{doc, Document};
 use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection};
 use serde::{Deserialize, Serialize};
-use crate::routes::{schema::CreateUserSchema, response::UserSingleResponse};
+use crate::routes::{response::{MessageSingleResponse, UserSingleResponse}, schema::{CreateUserSchema, MessageRequestSchema}};
 use mongodb::options::IndexOptions;
 use mongodb::IndexModel;
 use std::env;
 use crate::routes::schema::{NoteSchema, NoteHistorySchema, MessageSchema, NoteNullifierSchema};
-
+use chrono::Utc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct User {
@@ -88,7 +88,6 @@ impl IOUServiceDB {
         .keys(doc! {"title": 5})
         .options(options)
         .build();
-    println!("{:#?}", index);
     let res = match self.users.create_index(index, None).await {
         Ok(_) => {}
         Err(e) => return Err(Error::from(e)),
@@ -105,7 +104,6 @@ impl IOUServiceDB {
             return Err(Error::from(e));
         }
     };
-    println!("{:#?}", insert_result);
     let new_id = insert_result
         .inserted_id
         .as_object_id()
@@ -146,6 +144,22 @@ impl IOUServiceDB {
     }
   }
 
+  fn doc_to_message(&self, doc: Document) -> MessageSingleResponse {
+    let message = MessageSchema {
+      sender: doc.get_str("sender").ok().map(|s| s.to_owned()).unwrap(),
+      recipient: doc.get_str("recipient").ok().map(|s| s.to_owned()).unwrap() ,
+      message: doc.get_str("message").ok().map(|s| s.to_owned()).unwrap(),
+      timestamp: doc.get_i64("timestamp").ok().unwrap(),
+      attachment_id: doc.get_str("attachment_id").ok().map(|s| s.to_owned()).unwrap(),
+      read: doc.get_bool("read").ok().unwrap(),
+    };
+
+    MessageSingleResponse {
+      status: "success",
+      message: message
+    }
+  }
+
   fn create_user_document(&self, body: &CreateUserSchema) -> Document {
     let user = doc! {
       "username": body.username.clone(),
@@ -158,4 +172,63 @@ impl IOUServiceDB {
     
     user
   }
+  
+  fn get_current_timestamp(&self) -> i64 {
+    Utc::now().timestamp()
+  }
+
+  fn create_message_document(&self, body: &MessageRequestSchema) -> Document {
+    let message = doc! {
+      "sender": body.sender.clone(),
+      "recipient": body.recipient.clone(),
+      "message": body.message.clone(),
+      "timestamp": self.get_current_timestamp(),
+      "attachment_id": body.attachment_id.clone(),
+      "read": false,
+    };
+
+    message
+  }
+
+  pub async fn send_message(&self, body: &MessageRequestSchema) -> Result<MessageSingleResponse, Error> {
+    let document = self.create_message_document(body);
+    let options: IndexOptions = IndexOptions::builder().unique(true).build();
+    let index = IndexModel::builder()
+        .keys(doc! {"title": 5})
+        .options(options)
+        .build();
+    let res = match self.users.create_index(index, None).await {
+        Ok(_) => {}
+        Err(e) => return Err(Error::from(e)),
+    };
+    let insert_result = match self.messages.insert_one(document, None).await {
+        Ok(result) => result,
+        Err(e) => {
+            if e.to_string()
+                .contains("E11000 duplicate key error collection")
+            {
+              return Err(Error::from(e));
+            }
+            return Err(Error::from(e));
+        }
+    };
+    println!("{:#?}", res);
+    let new_id = insert_result
+        .inserted_id
+        .as_object_id()
+        .expect("issue with new _id");
+
+    let message_doc = match self
+        .messages
+        .find_one(doc! {"_id": new_id}, None)
+        .await
+    {
+        Ok(Some(doc)) => doc,
+        Ok(None) => return Err(Error::from("User not found after insertion")),
+        Err(e) => return Err(Error::from(e))
+    };
+
+    Ok(self.doc_to_message(message_doc))
+  }
+
 }

@@ -15,7 +15,6 @@ pub async fn get_user_with_username(
 
 #[axum::debug_handler]
 pub async fn create_user(Extension(db): Extension<IOUServiceDB>, Json(payload): Json<CreateUserSchema>) -> Result<Json<UserSingleResponse>, StatusCode> {
-  println!("{}", "i am inside");
   let new_user = CreateUserSchema {
     username: payload.username,
     pubkey: payload.pubkey,

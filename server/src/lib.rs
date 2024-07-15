@@ -11,7 +11,7 @@ use axum::{
 
 use mongo::IOUServiceDB;
 use routes::notes::{save_note, get_note};
-use routes::messages::{send_message, read_message};
+use routes::messages::{send_message, read_user_messages};
 use routes::nullifier::verify_nullifier;
 use routes::users::{get_user_with_username, create_user};
 
@@ -23,7 +23,7 @@ pub async fn run() {
   .route("/getNote", get(get_note))
   .route("/verifyNullifier", get(verify_nullifier))
   .route("/sendMessage", post(send_message))
-  .route("/readMessage", get(read_message))
+  .route("/readMessage", get(read_user_messages))
   .route("/getUser", get(get_user_with_username))
   .fallback(handler_404)
   .layer(Extension(mongo));

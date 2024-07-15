@@ -1,3 +1,4 @@
+use bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -33,15 +34,24 @@ pub struct NoteHistorySchema {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NoteNullifierSchema {
+  _id: ObjectId,
   nullifier: String,
   user_pub_key: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MessageSchema {
-  recipient: String,
-  sender: String,
-  message: String,
-  timestamp: i64,
-  attachment: NoteNullifierSchema,
+  pub recipient: String,
+  pub sender: String,
+  pub message: String,
+  pub timestamp: i64,
+  pub attachment_id: String,
+  pub read: bool, 
+}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MessageRequestSchema {
+  pub recipient: String,
+  pub sender: String,
+  pub message: String,
+  pub attachment_id: String,
 }
