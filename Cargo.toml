@@ -34,3 +34,4 @@ mongodb = { version = "2.5.0", features = ["bson-chrono-0_4"] }
 bson = { version = "2", features = ["chrono-0_4"] }
 chrono = "0.4"
 thiserror = "1.0.40"
+axum-extra = "0.9.3"

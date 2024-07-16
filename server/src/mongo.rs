@@ -1,8 +1,8 @@
 use ark_crypto_primitives::Error;
 
 use bson::{doc, Document};
-use mongodb::{ options::{  ClientOptions, ServerApi, ServerApiVersion }, Client, Collection};
-use crate::routes::{response::{MessageSingleResponse, UserSingleResponse}, schema::{CreateUserSchema, MessageRequestSchema, User}};
+use mongodb::{ options::{ ClientOptions, ServerApi, ServerApiVersion }, Client, Collection};
+use crate::routes::{response::{MessageSingleResponse, NullifierResponse, NullifierResponseData, UserSingleResponse}, schema::{CreateUserSchema, MessageRequestSchema, User}};
 use mongodb::options::IndexOptions;
 use mongodb::IndexModel;
 use std::env;
@@ -42,6 +42,7 @@ impl IOUServiceDB {
     let note_history_collection = db.collection("note_history");
     let messages = db.collection::<Document>("messages");
     let messages_collection = db.collection("messages");
+    // betrayal detection system
     let nullifiers = db.collection::<Document>("nullifiers");
     let nullifiers_collection = db.collection("nullifiers");
 
@@ -59,7 +60,7 @@ impl IOUServiceDB {
     }
   }
 
-  pub async fn get_user(&self, username: &str) -> UserSingleResponse{
+  pub async fn get_user(&self, username: &str) -> UserSingleResponse {
     let user = self
     .users
     .find_one(doc! {"username": username}, None)
@@ -147,7 +148,21 @@ impl IOUServiceDB {
       message: message
     }
   }
+  
+  fn doc_to_nullifier(&self, doc: Document) -> NullifierResponseData {
+    let nullifier = NoteNullifierSchema {
+      nullifier: doc.get_str("nullifier").ok().map(|s| s.to_owned()).unwrap(),
+      note: doc.get_str("note").ok().map(|s| s.to_owned()).unwrap(),
+      step: doc.get_i32("step").ok().unwrap(),
+      owner: doc.get_str("owner").ok().map(|s| s.to_owned()).unwrap(),
+    };
 
+    NullifierResponseData {
+      status: "success",
+      nullifier
+    }
+  }
+  
   fn create_user_document(&self, body: &CreateUserSchema) -> Document {
     let user = doc! {
       "username": body.username.clone(),
@@ -176,6 +191,17 @@ impl IOUServiceDB {
     };
 
     message
+  }
+  
+  fn create_note_nullifier_document(&self, body: &NoteNullifierSchema) -> Document {
+    let nullifier = doc! {
+      "nullifier": body.nullifier.clone(),
+      "note": body.note.clone(),
+      "step": body.step,
+      "owner": body.owner.clone(),
+    };
+
+    nullifier
   }
 
   pub async fn send_message(&self, body: &MessageRequestSchema) -> Result<MessageSingleResponse, Error> {
@@ -219,4 +245,60 @@ impl IOUServiceDB {
     Ok(self.doc_to_message(message_doc))
   }
 
+  pub async fn store_nullifier(&self, body: &NoteNullifierSchema) -> Result<NullifierResponseData, Error> {
+    let document = self.create_note_nullifier_document(body);
+    let options: IndexOptions = IndexOptions::builder().unique(true).build();
+    let index = IndexModel::builder()
+        .keys(doc! {"nullifier": 5})
+        .options(options)
+        .build();
+    let res = match self.nullifiers.create_index(index, None).await {
+        Ok(_) => {}
+        Err(e) => return Err(Error::from(e)),
+    };
+    let insert_result = match self.nullifiers.insert_one(document, None).await {
+        Ok(result) => result,
+        Err(e) => {
+            if e.to_string()
+                .contains("E11000 duplicate key error collection")
+            {
+                return Err(Error::from(e));
+            }
+            return Err(Error::from(e));
+        }
+    };
+    println!("{:#?}", res);
+    let new_id = insert_result
+      .inserted_id
+      .as_object_id()
+      .expect("issue with new _id");
+    let nullifier_doc = match self
+      .nullifiers
+      .find_one(doc! {"_id": new_id}, None)
+      .await
+    {
+      Ok(Some(doc)) => doc,
+      Ok(None) => return Err(Error::from("User not found after insertion")),
+      Err(e) => return Err(Error::from(e))
+    };
+    
+    Ok(self.doc_to_nullifier(nullifier_doc))
+  }
+
+  pub async fn get_nullifier(&self, nullifier: &str) -> NullifierResponse {
+    let nullifier_doc = self
+    .nullifiers
+    .find_one(doc! {"nullifier": nullifier}, None)
+    .await;
+
+    match nullifier_doc {
+      Ok(Some(doc)) => NullifierResponse::Ok(self.doc_to_nullifier(doc).nullifier),
+      Ok(None) => NullifierResponse::NotFound, // Handle case where no document is found
+      Err(err) => { 
+          // Handle the error, e.g., log it
+          println!("Error getting nullifier: {:?}", err);
+          NullifierResponse::Error 
+      }
+  }
+  } 
 }

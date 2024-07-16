@@ -28,3 +28,4 @@ mongodb.workspace = true
 bson.workspace = true
 chrono.workspace = true
 thiserror.workspace = true 
+axum-extra.workspace = true
