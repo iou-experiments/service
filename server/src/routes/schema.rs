@@ -20,7 +20,6 @@ pub struct CreateUserSchema {
     pub messages: Vec<String>,
     pub notes: Vec<String>,
     pub has_double_spent: bool,
-    pub id: String,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UsernameRequest {

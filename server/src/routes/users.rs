@@ -23,7 +23,6 @@ pub async fn create_user(Extension(db): Extension<IOUServiceDB>, Json(payload): 
     messages: payload.messages,
     notes: payload.notes,
     has_double_spent: payload.has_double_spent,
-    id: payload.id,
   };
   println!("{:#?}", new_user);
   match db.create_user(&new_user).await {
