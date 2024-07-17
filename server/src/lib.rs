@@ -25,7 +25,7 @@ pub async fn run() {
   .route("/get_note", get(get_note))
   // message routes
   .route("/send_message", post(send_message))
-  .route("/read_message", get(read_user_messages))
+  .route("/read_messages", get(read_user_messages))
   // verifier routes
   .route("/store_nullifier", post(store_nullifier))
   .route("/verify_nullifier", get(verify_nullifier))

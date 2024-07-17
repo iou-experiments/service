@@ -4,11 +4,18 @@ use axum::{
   http::StatusCode,
 };
 use crate::mongo::IOUServiceDB;
-use crate::routes::schema::MessageRequestSchema;
+use crate::routes::schema::{MessageRequestSchema, UsernameRequest, MessageSchema};
 use crate::routes::response::MessageSingleResponse;
 
-pub async fn read_user_messages() -> String {
-  "messages read!".to_owned()
+#[axum::debug_handler]
+pub async fn read_user_messages(
+  Extension(db): Extension<IOUServiceDB>,
+  Json(payload): Json<UsernameRequest>
+) -> Result<Json<Vec<MessageSchema>>, StatusCode> {
+  match db.get_unread_messages(&payload.username).await {
+    Ok(messages) => Ok(Json(messages)),
+    Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+  }
 }
 
 #[axum::debug_handler]

@@ -1,3 +1,4 @@
+use mongodb::bson::Bson;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -42,7 +43,7 @@ pub struct NoteHistorySchema {
   spent: bool,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MessageSchema {
   pub recipient: String,
   pub sender: String,
@@ -50,6 +51,7 @@ pub struct MessageSchema {
   pub timestamp: i64,
   pub attachment_id: String,
   pub read: bool, 
+  pub _id: Option<Bson>
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct MessageRequestSchema {
@@ -69,3 +71,4 @@ pub struct NoteNullifierSchema {
 pub struct NullifierRequest {
   pub nullifier: String,
 }
+

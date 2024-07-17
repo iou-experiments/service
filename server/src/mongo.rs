@@ -1,8 +1,8 @@
 use ark_crypto_primitives::Error;
 
 use bson::{doc, Document};
-use mongodb::{ options::{ ClientOptions, ServerApi, ServerApiVersion }, Client, Collection};
-use crate::routes::{response::{MessageSingleResponse, NullifierResponse, NullifierResponseData, UserSingleResponse}, schema::{CreateUserSchema, MessageRequestSchema, User}};
+use mongodb::{ Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion }, Client, Collection};
+use crate::routes::{error::MyError, response::{MessageSingleResponse, NullifierResponse, NullifierResponseData, UserSingleResponse}, schema::{CreateUserSchema, MessageRequestSchema, User}};
 use mongodb::options::IndexOptions;
 use mongodb::IndexModel;
 use std::env;
@@ -57,6 +57,39 @@ impl IOUServiceDB {
       messages_collection,
       nullifiers,
       nullifiers_collection,
+    }
+  }
+
+  // User
+  fn create_user_document(&self, body: &CreateUserSchema) -> Document {
+    let user = doc! {
+      "username": body.username.clone(),
+      "pubkey": body.pubkey.clone(),
+      "nonce": body.nonce.clone(),
+      "messages": body.messages.clone(),
+      "notes": body.notes.clone(),
+      "has_double_spent": body.has_double_spent
+    };
+    
+    user
+  }
+  
+  fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
+    let user = User {
+      id: doc.get_str("_id").ok().map(|s| s.to_owned()),
+        has_double_spent: doc.get_bool("has_double_spent").ok(),
+        nonce: doc.get_str("nonce").ok().map(|s| s.to_owned()),
+        username: doc.get_str("username").ok().map(|s| s.to_owned()),
+        pubkey: doc.get_str("pubkey").ok().map(|s| s.to_owned()),
+        messages: doc.get_array("messages").ok().map(|arr| 
+            arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
+        notes: doc.get_array("notes").ok().map(|arr| 
+            arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
+    };
+
+    UserSingleResponse {
+      status: "success",
+      user
     }
   }
 
@@ -122,25 +155,7 @@ impl IOUServiceDB {
     })
   }
 
-  fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
-    let user = User {
-      id: doc.get_str("_id").ok().map(|s| s.to_owned()),
-        has_double_spent: doc.get_bool("has_double_spent").ok(),
-        nonce: doc.get_str("nonce").ok().map(|s| s.to_owned()),
-        username: doc.get_str("username").ok().map(|s| s.to_owned()),
-        pubkey: doc.get_str("pubkey").ok().map(|s| s.to_owned()),
-        messages: doc.get_array("messages").ok().map(|arr| 
-            arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
-        notes: doc.get_array("notes").ok().map(|arr| 
-            arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
-    };
-
-    UserSingleResponse {
-      status: "success",
-      user
-    }
-  }
-
+  // Messages
   fn doc_to_message(&self, doc: Document) -> MessageSingleResponse {
     let message = MessageSchema {
       sender: doc.get_str("sender").ok().map(|s| s.to_owned()).unwrap(),
@@ -149,43 +164,13 @@ impl IOUServiceDB {
       timestamp: doc.get_i64("timestamp").ok().unwrap(),
       attachment_id: doc.get_str("attachment_id").ok().map(|s| s.to_owned()).unwrap(),
       read: doc.get_bool("read").ok().unwrap(),
+      _id: doc.get("_id").to_owned().cloned()
     };
 
     MessageSingleResponse {
       status: "success",
       message: message
     }
-  }
-  
-  fn doc_to_nullifier(&self, doc: Document) -> NullifierResponseData {
-    let nullifier = NoteNullifierSchema {
-      nullifier: doc.get_str("nullifier").ok().map(|s| s.to_owned()).unwrap(),
-      note: doc.get_str("note").ok().map(|s| s.to_owned()).unwrap(),
-      step: doc.get_i32("step").ok().unwrap(),
-      owner: doc.get_str("owner").ok().map(|s| s.to_owned()).unwrap(),
-    };
-
-    NullifierResponseData {
-      status: "success",
-      nullifier
-    }
-  }
-  
-  fn create_user_document(&self, body: &CreateUserSchema) -> Document {
-    let user = doc! {
-      "username": body.username.clone(),
-      "pubkey": body.pubkey.clone(),
-      "nonce": body.nonce.clone(),
-      "messages": body.messages.clone(),
-      "notes": body.notes.clone(),
-      "has_double_spent": body.has_double_spent
-    };
-    
-    user
-  }
-  
-  fn get_current_timestamp(&self) -> i64 {
-    Utc::now().timestamp()
   }
 
   fn create_message_document(&self, body: &MessageRequestSchema) -> Document {
@@ -201,15 +186,8 @@ impl IOUServiceDB {
     message
   }
   
-  fn create_note_nullifier_document(&self, body: &NoteNullifierSchema) -> Document {
-    let nullifier = doc! {
-      "nullifier": body.nullifier.clone(),
-      "note": body.note.clone(),
-      "step": body.step,
-      "owner": body.owner.clone(),
-    };
-
-    nullifier
+  fn get_current_timestamp(&self) -> i64 {
+    Utc::now().timestamp()
   }
 
   pub async fn send_message(&self, body: &MessageRequestSchema) -> Result<MessageSingleResponse, Error> {
@@ -241,6 +219,76 @@ impl IOUServiceDB {
     };
 
     Ok(self.doc_to_message(message_doc))
+  }
+
+  pub async fn get_unread_messages(&self, username: &str) -> Result<Vec<MessageSchema>, Error> {
+    let filter = doc! {
+      "recipient": username, // Assuming you're fetching messages for the recipient
+      "read": false
+    };
+
+    let sort = doc! { "timestamp": 1 }; // 1 for ascending (oldest to newest)
+
+    let find_options = FindOptions::builder()
+      .sort(sort)
+      .build();
+
+    let mut cursor: Cursor<Document> = self.messages
+        .find(filter, Some(find_options))
+        .await
+        .map_err(MyError::MongoError)?;
+
+    let mut messages = Vec::new(); 
+
+    // Iterate using advance() and deserialize_current()
+    while cursor.advance().await? {
+      let message: MessageSchema = bson::from_document(cursor.deserialize_current()?)?; 
+      println!("{:#?}", message);
+      let update_result = self.messages
+        .update_one(
+          doc! { "_id": message._id.clone() }, 
+          doc! { "$set": { "read": true } },
+          None,
+        )
+        .await;
+
+      if let Err(err) = update_result {
+        eprintln!("Error marking message as read: {:?}", err);
+        // Handle the error appropriately
+      } else {
+        messages.push(message);
+      }
+    }
+
+    Ok(messages) 
+    
+    
+  }
+
+  // Nullifiers
+  fn doc_to_nullifier(&self, doc: Document) -> NullifierResponseData {
+    let nullifier = NoteNullifierSchema {
+      nullifier: doc.get_str("nullifier").ok().map(|s| s.to_owned()).unwrap(),
+      note: doc.get_str("note").ok().map(|s| s.to_owned()).unwrap(),
+      step: doc.get_i32("step").ok().unwrap(),
+      owner: doc.get_str("owner").ok().map(|s| s.to_owned()).unwrap(),
+    };
+
+    NullifierResponseData {
+      status: "success",
+      nullifier
+    }
+  }
+
+  fn create_note_nullifier_document(&self, body: &NoteNullifierSchema) -> Document {
+    let nullifier = doc! {
+      "nullifier": body.nullifier.clone(),
+      "note": body.note.clone(),
+      "step": body.step,
+      "owner": body.owner.clone(),
+    };
+
+    nullifier
   }
 
   pub async fn store_nullifier(&self, body: &NoteNullifierSchema) -> Result<NullifierResponseData, Error> {
