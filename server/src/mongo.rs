@@ -73,46 +73,54 @@ impl IOUServiceDB {
     let document = self.create_user_document(body);
 
     let options: IndexOptions = IndexOptions::builder().unique(true).build();
+
     let index = IndexModel::builder()
-        .keys(doc! {"title": 5})
+        .keys(doc! {"username": 1})
         .options(options)
         .build();
+
     let res = match self.users.create_index(index, None).await {
         Ok(_) => {}
         Err(e) => return Err(Error::from(e)),
     };
+
     println!("{:#?}", res);
     let insert_result = match self.users.insert_one(document, None).await {
-        Ok(result) => result,
-        Err(e) => {
-            if e.to_string()
-                .contains("E11000 duplicate key error collection")
-            {
-              return Err(Error::from(e));
-            }
+      Ok(result) => {
+        println!("{:?}", result);
+        result
+      },
+      Err(e) => {
+        println!("{:?}", e);
+          if e.to_string()
+              .contains("E11000 duplicate key error collection")
+          {
             return Err(Error::from(e));
-        }
+          }
+          return Err(Error::from(e));
+      }
     };
+    println!("{:#?}", insert_result);
     let new_id = insert_result
-        .inserted_id
-        .as_object_id()
-        .expect("issue with new _id");
+      .inserted_id
+      .as_object_id()
+      .expect("issue with new _id");
 
     let user_doc = match self
-        .users
-        .find_one(doc! {"_id": new_id}, None)
-        .await
+      .users
+      .find_one(doc! {"_id": new_id}, None)
+      .await
     {
-        Ok(Some(doc)) => doc,
-        Ok(None) => return Err(Error::from("User not found after insertion")),
-        Err(e) => return Err(Error::from(e))
+      Ok(Some(doc)) => doc,
+      Ok(None) => return Err(Error::from("User not found after insertion")),
+      Err(e) => return Err(Error::from(e))
     };
 
     Ok(UserSingleResponse {
-        status: "success",
-        user: self.doc_to_user(user_doc).user
+      status: "success",
+      user: self.doc_to_user(user_doc).user
     })
-}
+  }
 
   fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
     let user = User {
@@ -206,15 +214,6 @@ impl IOUServiceDB {
 
   pub async fn send_message(&self, body: &MessageRequestSchema) -> Result<MessageSingleResponse, Error> {
     let document = self.create_message_document(body);
-    let options: IndexOptions = IndexOptions::builder().unique(true).build();
-    let index = IndexModel::builder()
-        .keys(doc! {"title": 5})
-        .options(options)
-        .build();
-    let res = match self.users.create_index(index, None).await {
-        Ok(_) => {}
-        Err(e) => return Err(Error::from(e)),
-    };
     let insert_result = match self.messages.insert_one(document, None).await {
         Ok(result) => result,
         Err(e) => {
@@ -226,7 +225,6 @@ impl IOUServiceDB {
             return Err(Error::from(e));
         }
     };
-    println!("{:#?}", res);
     let new_id = insert_result
         .inserted_id
         .as_object_id()
@@ -249,7 +247,7 @@ impl IOUServiceDB {
     let document = self.create_note_nullifier_document(body);
     let options: IndexOptions = IndexOptions::builder().unique(true).build();
     let index = IndexModel::builder()
-        .keys(doc! {"nullifier": 5})
+        .keys(doc! {"nullifier": 2})
         .options(options)
         .build();
     let res = match self.nullifiers.create_index(index, None).await {
@@ -292,7 +290,31 @@ impl IOUServiceDB {
     .await;
 
     match nullifier_doc {
-      Ok(Some(doc)) => NullifierResponse::Ok(self.doc_to_nullifier(doc).nullifier),
+      Ok(Some(doc)) => {
+        // 1. Get the owner from the nullifier document
+        let owner_result = doc.get_str("owner");
+
+        if let Ok(owner) = owner_result {
+            // 2. Update the user document
+            let update_result = self.users
+                .update_one(
+                    doc! {"username": owner}, // Assuming username is used for identification
+                    doc! {"$set": {"has_double_spent": true}},
+                    None,
+                )
+                .await;
+
+            // Handle potential errors during the update
+            if let Err(err) = update_result {
+                eprintln!("Error updating user: {:?}", err);
+                // You might want to return an error response here as well
+            }
+        } else {
+            eprintln!("Owner not found in nullifier document.");
+        }
+        println!("WARNING: USER IS ATTEMPTING TO DOUBLE SPEND, we have flagged their account.");
+        NullifierResponse::Ok(self.doc_to_nullifier(doc).nullifier)
+      }
       Ok(None) => NullifierResponse::NotFound, // Handle case where no document is found
       Err(err) => { 
           // Handle the error, e.g., log it
