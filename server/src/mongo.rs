@@ -222,7 +222,7 @@ impl IOUServiceDB {
 
   pub async fn get_unread_messages(&self, username: &str) -> Result<Vec<MessageSchema>, Error> {
     let filter = doc! {
-      "recipient": "test",
+      "recipient": username,
       "read": false
     };
 
@@ -259,8 +259,7 @@ impl IOUServiceDB {
       }
     }
 
-    Ok(messages) 
-    
+    Ok(messages)   
   }
 
   // Nullifiers
