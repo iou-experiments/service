@@ -1,12 +1,10 @@
-mod mongo;
-
+pub mod mongo;
+pub mod routes;
 use service_http::run;
-use mongo::IOUServiceDB;
 use tokio;
 
 #[tokio::main]
 async fn main() {
-   let mongo = IOUServiceDB::init().await;
-   run(mongo).await;
+   run().await;
 }
 
