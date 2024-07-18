@@ -203,19 +203,33 @@ impl IOUServiceDB {
         }
     };
     let new_id = insert_result
-        .inserted_id
-        .as_object_id()
-        .expect("issue with new _id");
+      .inserted_id
+      .as_object_id()
+      .expect("issue with new _id");
 
     let message_doc = match self
-        .messages
-        .find_one(doc! {"_id": new_id}, None)
-        .await
+      .messages
+      .find_one(doc! {"_id": new_id}, None)
+      .await
     {
-        Ok(Some(doc)) => doc,
-        Ok(None) => return Err(Error::from("User not found after insertion")),
-        Err(e) => return Err(Error::from(e))
+      Ok(Some(doc)) => doc,
+      Ok(None) => return Err(Error::from("User not found after insertion")),
+      Err(e) => return Err(Error::from(e))
     };
+
+    let recipient_username = message_doc.get_str("recipient")
+    .map_err(|_| Error::from("Recipient username not found in message"))?;
+
+    let update_result = self.users.update_one(
+      doc! { "username": recipient_username }, 
+      doc! { "$push": { "messages": new_id } },
+      None,
+    ).await;
+
+    if let Err(err) = update_result {
+      eprintln!("Error updating user document: {:?}", err); 
+      return Err(Error::from("Failed to update user document with message"));
+    }
 
     Ok(self.doc_to_message(message_doc))
   }
