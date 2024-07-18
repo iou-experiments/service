@@ -27,13 +27,23 @@ pub struct UsernameRequest {
   pub username: String
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteSchema {
-  recipient: String,
-  sender: String,
-  message: String,
-  timestamp: i64,
-  attachment: NoteNullifierSchema,
+    pub(crate) asset_hash: String,
+    pub(crate) owner: String,
+    pub(crate) value: u64,
+    pub(crate) step: u32,
+    pub(crate) parent_note: String,
+    pub(crate) out_index: String,
+    pub(crate) blind: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NoteHistory {
+    pub(crate) asset: String,
+    pub(crate) steps: Vec<String>,
+    pub(crate) current_note: NoteSchema,
+    pub(crate) sibling: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -72,3 +82,7 @@ pub struct NullifierRequest {
   pub nullifier: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct NoteRequest {
+  pub owner_pub_key: String,
+}

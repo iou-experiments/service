@@ -2,11 +2,25 @@ use ark_crypto_primitives::Error;
 
 use bson::{doc, Document};
 use mongodb::{ Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion }, Client, Collection};
-use crate::routes::{error::MyError, response::{MessageSingleResponse, NullifierResponse, NullifierResponseData, UserSingleResponse}, schema::{CreateUserSchema, MessageRequestSchema, User}};
+use crate::routes::{
+  error::MyError,
+  response::{
+    MessageSingleResponse,
+    NoteResponse,
+    NullifierResponse,
+    NullifierResponseData,
+    UserSingleResponse
+  },
+  schema::{
+    CreateUserSchema,
+    MessageRequestSchema,
+    User
+  }
+};
 use mongodb::options::IndexOptions;
 use mongodb::IndexModel;
 use std::env;
-use crate::routes::schema::{NoteSchema, NoteHistorySchema, MessageSchema, NoteNullifierSchema};
+use crate::routes::schema::{NoteSchema, MessageSchema, NoteNullifierSchema};
 use chrono::Utc;
 use futures::stream::TryStreamExt;
 
@@ -16,8 +30,6 @@ pub struct IOUServiceDB {
   pub users: Collection<Document>,
   pub notes: Collection<Document>,
   pub notes_collection: Collection<NoteSchema>,
-  pub note_history: Collection<Document>,
-  pub note_history_collection: Collection<NoteHistorySchema>,
   pub messages: Collection<Document>,
   pub messages_collection: Collection<MessageSchema>,
   pub nullifiers: Collection<Document>,
@@ -31,14 +43,14 @@ impl IOUServiceDB {
     let server_api = ServerApi::builder().version(ServerApiVersion::V1).build();
     client_options.server_api = Some(server_api);
     let client = Client::with_options(client_options).unwrap();
-
     let db = client.database("iou");
+    // users
     let users = db.collection::<Document>("users");
     let users_collection = db.collection("users");
+    // notes
     let notes = db.collection::<Document>("notes");
     let notes_collection = db.collection("notes");
-    let note_history = db.collection::<Document>("note_history");
-    let note_history_collection = db.collection("note_history");
+    // communication
     let messages = db.collection::<Document>("messages");
     let messages_collection = db.collection("messages");
     // betrayal detection system
@@ -50,8 +62,6 @@ impl IOUServiceDB {
       users_collection,
       notes,
       notes_collection,
-      note_history,
-      note_history_collection,
       messages,
       messages_collection,
       nullifiers,
@@ -380,6 +390,100 @@ impl IOUServiceDB {
           println!("Error getting nullifier: {:?}", err);
           NullifierResponse::Error 
       }
-  }
+    }
   } 
+
+  // Notes
+  fn doc_to_note(&self, doc: Document) -> NoteResponse {
+    let note = NoteSchema {
+      asset_hash: doc.get_str("asset_hash").ok().map(|s| s.to_owned()).unwrap(),
+      owner: doc.get_str("owner").ok().map(|s| s.to_owned()).unwrap(),
+      value: doc.get_i64("value").ok().unwrap() as u64,
+      step: doc.get_i32("step").ok().unwrap() as u32,
+      parent_note: doc.get_str("parent_note").ok().map(|s| s.to_owned()).unwrap(),
+      out_index: doc.get_str("out_index").ok().map(|s| s.to_owned()).unwrap(),
+      blind: doc.get_str("blind").ok().map(|s| s.to_owned()).unwrap(),
+    };
+
+    NoteResponse { status: "success", note }
+  }
+
+  fn create_note_document(&self, body: &NoteSchema) -> Document {
+    let note = doc! {
+      "asset_hash": body.asset_hash.clone(),
+      "owner": body.owner.clone(),
+      "value": body.value as i64,
+      "step": body.step as i32,
+      "parent_note": body.parent_note.clone(),
+      "out_index": body.out_index.clone(),
+      "blind": body.blind.clone(),
+    };
+
+    note
+  }
+
+  pub async fn store_note(&self, body: &NoteSchema) -> Result<NoteResponse, Error> {
+    let document = self.create_note_document(body);
+
+    let insert_result = match self.notes.insert_one(document, None).await {
+        Ok(result) => result,
+        Err(e) => {
+            if e.to_string()
+                .contains("E11000 duplicate key error collection")
+            {
+                return Err(Error::from(e));
+            }
+            return Err(Error::from(e));
+        }
+    };
+  
+    let new_id = insert_result
+      .inserted_id
+      .as_object_id()
+      .expect("issue with new _id");
+  
+    let note_doc = match self
+      .notes
+      .find_one(doc! {"_id": new_id}, None)
+      .await
+    {
+      Ok(Some(doc)) => doc,
+      Ok(None) => return Err(Error::from("User not found after insertion")),
+      Err(e) => return Err(Error::from(e))
+    };
+
+    let note_owner = note_doc.get_str("owner")
+    .map_err(|_| Error::from("owner pubkey not found"))?;
+
+    let update_result = self.users.update_one(
+      doc! { "pubkey": note_owner }, 
+      doc! { "$push": { "notes": new_id } },
+      None,
+    ).await;
+
+    if let Err(err) = update_result {
+      eprintln!("Error updating user document: {:?}", err); 
+      return Err(Error::from("Failed to update user document with note"));
+    }
+
+    Ok(self.doc_to_note(note_doc))
+  }
+
+  pub async fn get_user_notes(&self, user_pub_key: &str) -> Result<Vec<NoteSchema>, Error> {
+    let filter = doc! { "owner": user_pub_key };
+
+    let mut cursor: Cursor<Document> = self.notes
+        .find(filter, None)
+        .await
+        .map_err(MyError::MongoError)?;
+ 
+    let mut notes = Vec::new(); 
+
+    while let Some(doc) = cursor.try_next().await? {
+      let note = self.doc_to_note(doc);
+      notes.push(note.note);
+    }
+
+    Ok(notes)
+  }
 }
