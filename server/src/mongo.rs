@@ -8,8 +8,7 @@ use mongodb::IndexModel;
 use std::env;
 use crate::routes::schema::{NoteSchema, NoteHistorySchema, MessageSchema, NoteNullifierSchema};
 use chrono::Utc;
-
-
+use futures::stream::TryStreamExt;
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
@@ -223,7 +222,7 @@ impl IOUServiceDB {
 
   pub async fn get_unread_messages(&self, username: &str) -> Result<Vec<MessageSchema>, Error> {
     let filter = doc! {
-      "recipient": username, // Assuming you're fetching messages for the recipient
+      "recipient": "test",
       "read": false
     };
 
@@ -237,16 +236,16 @@ impl IOUServiceDB {
         .find(filter, Some(find_options))
         .await
         .map_err(MyError::MongoError)?;
-
+ 
     let mut messages = Vec::new(); 
 
-    // Iterate using advance() and deserialize_current()
-    while cursor.advance().await? {
-      let message: MessageSchema = bson::from_document(cursor.deserialize_current()?)?; 
-      println!("{:#?}", message);
+    while let Some(doc) = cursor.try_next().await? {
+     
+      let msg = self.doc_to_message(doc);
+
       let update_result = self.messages
         .update_one(
-          doc! { "_id": message._id.clone() }, 
+          doc! { "_id": msg.message._id.clone() }, 
           doc! { "$set": { "read": true } },
           None,
         )
@@ -256,12 +255,11 @@ impl IOUServiceDB {
         eprintln!("Error marking message as read: {:?}", err);
         // Handle the error appropriately
       } else {
-        messages.push(message);
+        messages.push(msg.message);
       }
     }
 
     Ok(messages) 
-    
     
   }
 
