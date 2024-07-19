@@ -1,20 +1,13 @@
 use ark_crypto_primitives::Error;
-
 use bson::{doc, Document};
 use mongodb::{ Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion }, Client, Collection};
 use crate::routes::{
   error::MyError,
   response::{
-    MessageSingleResponse,
-    NoteResponse,
-    NullifierResponse,
-    NullifierResponseData,
-    UserSingleResponse
+    MessageSingleResponse, NoteHistoryResponse, NoteResponse, NullifierResponse, NullifierResponseData, UserSingleResponse
   },
   schema::{
-    CreateUserSchema,
-    MessageRequestSchema,
-    User
+    CreateUserSchema, MessageRequestSchema, NoteHistory, User, ChallengeSchema
   }
 };
 use mongodb::options::IndexOptions;
@@ -23,6 +16,7 @@ use std::env;
 use crate::routes::schema::{NoteSchema, MessageSchema, NoteNullifierSchema};
 use chrono::Utc;
 use futures::stream::TryStreamExt;
+use hex;
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
@@ -30,10 +24,14 @@ pub struct IOUServiceDB {
   pub users: Collection<Document>,
   pub notes: Collection<Document>,
   pub notes_collection: Collection<NoteSchema>,
+  pub note_history: Collection<Document>,
+  pub note_history_collection: Collection<NoteHistory>,
   pub messages: Collection<Document>,
   pub messages_collection: Collection<MessageSchema>,
   pub nullifiers: Collection<Document>,
   pub nullifiers_collection: Collection<NoteNullifierSchema>,
+  pub challenges_collection: Collection<ChallengeSchema>,
+  pub challenges: Collection<Document>,
 }
 
 impl IOUServiceDB {
@@ -50,12 +48,18 @@ impl IOUServiceDB {
     // notes
     let notes = db.collection::<Document>("notes");
     let notes_collection = db.collection("notes");
-    // communication
+    // note history
+    let note_history = db.collection::<Document>("note_history");
+    let note_history_collection = db.collection("note_history");
+    //messages
     let messages = db.collection::<Document>("messages");
     let messages_collection = db.collection("messages");
     // betrayal detection system
     let nullifiers = db.collection::<Document>("nullifiers");
     let nullifiers_collection = db.collection("nullifiers");
+    // auth challenge
+    let challenges_collection = db.collection("challenges");
+    let challenges = db.collection::<Document>("challenges");
 
     Self {
       users,
@@ -66,6 +70,10 @@ impl IOUServiceDB {
       messages_collection,
       nullifiers,
       nullifiers_collection,
+      note_history,
+      note_history_collection,
+      challenges,
+      challenges_collection
     }
   }
 
@@ -82,6 +90,12 @@ impl IOUServiceDB {
     
     user
   }
+
+  // THIS IS VALID
+  // In september note 1: I make note 1000$ send to Onur 500 -> Produce a nullifier and state and the following state
+  // In October note 2: I make note 1000$ send to Onur 500 -> Produce a nullifier and the following state
+  // NULLIFIER VECTOR
+
   
   fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
     let user = User {
@@ -286,7 +300,7 @@ impl IOUServiceDB {
     Ok(messages)   
   }
 
-  // Nullifiers
+  // Nullifiers 
   fn doc_to_nullifier(&self, doc: Document) -> NullifierResponseData {
     let nullifier = NoteNullifierSchema {
       nullifier: doc.get_str("nullifier").ok().map(|s| s.to_owned()).unwrap(),
@@ -485,5 +499,130 @@ impl IOUServiceDB {
     }
 
     Ok(notes)
+  }
+
+  // Notes History
+  fn doc_to_note_history(&self, doc: Document, note: NoteSchema) -> NoteHistoryResponse {
+    let note_history = NoteHistory {
+      current_note: note,
+      asset: doc.get_str("asset").ok().map(|s| s.to_owned()).unwrap(),
+      steps: doc.get_array("steps").ok().map(|arr| {
+        arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()
+      }).unwrap_or_else(Vec::new),
+      sibling: doc.get_str("sibling").ok().map(|s| s.to_owned()).unwrap_or_else(String::new),
+    };
+
+    NoteHistoryResponse {
+      status: "success", 
+      note_history
+    }
+  }
+
+  fn create_note_history_document(&self, body: NoteHistory ) -> Document {
+    let note_history = doc! {
+      "asset": body.asset.clone(),
+      "steps": body.steps,
+      "current_note": self.create_note_document(&body.current_note),
+      "sibling": body.sibling.clone()
+    };
+
+    note_history
+  }
+
+  pub async fn create_and_transfer_note_history(
+    &self,
+    current_owner_username: &str,
+    recipient_username: &str, 
+  ) {
+    let recipient = self.get_user(recipient_username);
+    let owner = self.get_user(current_owner_username);
+
+    println!("{:#?} {:#?}", recipient.await.user.pubkey, owner.await.user.pubkey)
+  }
+
+  // auth & challenges
+  // pub async fn authenticate_user(
+  //   &self,
+  //   username: &str,
+  //   signature_hex: &str, 
+  //   challenge_id: &str,
+  // ) -> Result<bool, Error> {
+
+  //   let challenge = self.get_challenge(challenge_id).await?; // Implement this
+  //   let user_doc = self.users.find_one(doc! {"username": username}, None).await?;
+  //   let public_key_bytes = hex::decode(
+  //       user_doc.unwrap().get_str("pubkey")?
+  //   ).map_err(|_| Error::from("owner pubkey not found"))?;
+
+  //   let public_key: ed25519_dalek::PublicKey = ed25519_dalek::PublicKey::from_bytes(&public_key_bytes)?; 
+
+  //   let signature_bytes = hex::decode(signature_hex).map_err(|_| Error::from("no existing challenge"))?;
+  //   let signature: ed25519_dalek::Signature = ed25519_dalek::Signature::from_bytes(&signature_bytes)?;
+
+  //   let is_valid = public_key.verify_strict(&challenge, &signature).is_ok();
+
+  //   if is_valid {
+  //       Ok(true)
+  //   } else {
+  //       Ok(false)
+  //   }
+  // }
+
+  // async fn get_challenge(
+  //   &self, 
+  //   challenge_id: &str,
+  // ) {
+  //   let existing_challenge = self.challenges.find_one(
+  //       doc! {"challenge_id": challenge_id, "expires_at": { "$gt": Utc::now() } },
+  //       None
+  //   ).await
+  //   .map_err(|_| Error::from("no existing challenge"));
+  //   let challenge = existing_challenge
+  //   .map(|doc| self.document_to_challenge(doc.unwrap()));
+  //   if let Some(c) = challenge {
+  //       Ok(challenge.challenge_id.as_bytes().to_vec()) 
+  //   } else {
+  //       let challenge_id = rand::thread_rng()
+  //           .sample_iter(&Alphanumeric)
+  //           .take(32) 
+  //           .map(char::from)
+  //           .collect();
+
+  //       let new_challenge = ChallengeSchema {
+  //           challenge_id: challenge_id.clone(),
+  //           user_id: username.to_string(), 
+  //           created_at: self.get_current_timestamp(),
+  //           expires_at: self.get_current_timestamp(),
+  //       };
+
+  //       self.challenges.insert_one(new_challenge, None)
+  //           .await
+  //           .map_err(|_| Error::from("database error"))?;
+
+
+  //       Ok(challenge_id.as_bytes().to_vec())
+  //   }
+  // }
+
+  fn create_challenge_document(&self, body: ChallengeSchema) -> Document {
+    let note_history = doc! {
+      "challenge_id": body.challenge_id.clone(),
+      "user_id": body.user_id.clone(),
+      "created_at": body.created_at,
+      "expires_at": body.expires_at,
+    };
+
+    note_history
+  }
+
+  fn document_to_challenge(&self, doc: Document) -> ChallengeSchema {
+    let challenge = ChallengeSchema {
+      challenge_id: doc.get_str("challenge_id").ok().map(|s| s.to_owned()).unwrap(),
+      user_id: doc.get_str("user_id").ok().map(|s| s.to_owned()).unwrap(),
+      created_at: doc.get_i64("created_at").ok().unwrap(),
+      expires_at: doc.get_i64("expires_at").ok().unwrap(),
+    };
+
+    challenge
   }
 }

@@ -9,7 +9,7 @@ use axum::{
 };
 
 use mongo::IOUServiceDB;
-use routes::notes::{save_note, get_notes};
+use routes::notes::{create_and_transfer_note_history, get_notes, save_note};
 use routes::messages::{send_message, read_user_messages};
 use routes::nullifier::{store_nullifier, verify_nullifier};
 use routes::users::{get_user_with_username, create_user};
@@ -29,6 +29,8 @@ pub async fn run() {
   // verifier routes
   .route("/store_nullifier", post(store_nullifier))
   .route("/verify_nullifier", get(verify_nullifier))
+  // create and transfer notes history
+  .route("/create_and_transfer_note_history", get(create_and_transfer_note_history))
   // fallback, state, and db
   .fallback(handler_404)
   .layer(Extension(mongo));

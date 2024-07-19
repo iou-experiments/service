@@ -29,4 +29,6 @@ bson.workspace = true
 chrono.workspace = true
 thiserror.workspace = true 
 axum-extra.workspace = true
+hex.workspace = true
+ed25519-dalek.workspace = true
 futures = "0.3.30"

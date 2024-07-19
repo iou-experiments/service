@@ -40,10 +40,10 @@ pub struct NoteSchema {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteHistory {
-    pub(crate) asset: String,
-    pub(crate) steps: Vec<String>,
-    pub(crate) current_note: NoteSchema,
-    pub(crate) sibling: String,
+  pub(crate) asset: String,
+  pub(crate) steps: Vec<String>,
+  pub(crate) current_note: NoteSchema,
+  pub(crate) sibling: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -70,6 +70,8 @@ pub struct MessageRequestSchema {
   pub message: String,
   pub attachment_id: String,
 }
+
+// We must add a future state vector
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NoteNullifierSchema {
   pub nullifier: String,
@@ -85,4 +87,19 @@ pub struct NullifierRequest {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NoteRequest {
   pub owner_pub_key: String,
+  pub step: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct NoteHistoryRequest {
+  pub owner_username: String,
+  pub recipient_username: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ChallengeSchema {
+  pub challenge_id: String, // A unique identifier for the challenge
+  pub user_id: String,      // Link the challenge to a user (you could use ObjectId here too)
+  pub created_at: i64,
+  pub expires_at: i64,
 }

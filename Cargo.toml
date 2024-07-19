@@ -35,3 +35,5 @@ bson = { version = "2", features = ["chrono-0_4"] }
 chrono = "0.4"
 thiserror = "1.0.40"
 axum-extra = "0.9.3"
+hex = "0.4.3"
+ed25519-dalek = "1.0.1"
