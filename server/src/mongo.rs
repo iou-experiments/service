@@ -17,6 +17,8 @@ use crate::routes::schema::{NoteSchema, MessageSchema, NoteNullifierSchema};
 use chrono::Utc;
 use futures::stream::TryStreamExt;
 use hex;
+use rand::Rng;
+use rand::distributions::Alphanumeric;
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
@@ -540,69 +542,70 @@ impl IOUServiceDB {
     println!("{:#?} {:#?}", recipient.await.user.pubkey, owner.await.user.pubkey)
   }
 
-  // auth & challenges
-  // pub async fn authenticate_user(
-  //   &self,
-  //   username: &str,
-  //   signature_hex: &str, 
-  //   challenge_id: &str,
-  // ) -> Result<bool, Error> {
+  //auth & challenges
+  pub async fn authenticate_user(
+    &self,
+    username: &str,
+    signature_hex: &str, 
+    challenge_id: &str,
+  ) -> Result<bool, Error> {
 
-  //   let challenge = self.get_challenge(challenge_id).await?; // Implement this
-  //   let user_doc = self.users.find_one(doc! {"username": username}, None).await?;
-  //   let public_key_bytes = hex::decode(
-  //       user_doc.unwrap().get_str("pubkey")?
-  //   ).map_err(|_| Error::from("owner pubkey not found"))?;
+    let challenge = self.get_challenge(challenge_id).await; // Implement this
+    let user_doc = self.users.find_one(doc! {"username": username}, None).await?;
+    let public_key_bytes = hex::decode(
+        user_doc.unwrap().get_str("pubkey")?
+    ).map_err(|_| Error::from("owner pubkey not found"))?;
 
-  //   let public_key: ed25519_dalek::PublicKey = ed25519_dalek::PublicKey::from_bytes(&public_key_bytes)?; 
+    let public_key: ed25519_dalek::PublicKey = ed25519_dalek::PublicKey::from_bytes(&public_key_bytes)?; 
 
-  //   let signature_bytes = hex::decode(signature_hex).map_err(|_| Error::from("no existing challenge"))?;
-  //   let signature: ed25519_dalek::Signature = ed25519_dalek::Signature::from_bytes(&signature_bytes)?;
+    let signature_bytes = hex::decode(signature_hex).map_err(|_| Error::from("no existing challenge"))?;
+    let signature: ed25519_dalek::Signature = ed25519_dalek::Signature::from_bytes(&signature_bytes)?;
 
-  //   let is_valid = public_key.verify_strict(&challenge, &signature).is_ok();
+    let is_valid = public_key.verify_strict(&challenge.unwrap(), &signature).is_ok();
 
-  //   if is_valid {
-  //       Ok(true)
-  //   } else {
-  //       Ok(false)
-  //   }
-  // }
+    if is_valid {
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+  }
 
-  // async fn get_challenge(
-  //   &self, 
-  //   challenge_id: &str,
-  // ) {
-  //   let existing_challenge = self.challenges.find_one(
-  //       doc! {"challenge_id": challenge_id, "expires_at": { "$gt": Utc::now() } },
-  //       None
-  //   ).await
-  //   .map_err(|_| Error::from("no existing challenge"));
-  //   let challenge = existing_challenge
-  //   .map(|doc| self.document_to_challenge(doc.unwrap()));
-  //   if let Some(c) = challenge {
-  //       Ok(challenge.challenge_id.as_bytes().to_vec()) 
-  //   } else {
-  //       let challenge_id = rand::thread_rng()
-  //           .sample_iter(&Alphanumeric)
-  //           .take(32) 
-  //           .map(char::from)
-  //           .collect();
+  async fn get_challenge(
+    &self, 
+    challenge_id: &str,
+  ) -> Result<Vec<u8>, Error> {
+    let existing_challenge = self.challenges.find_one(
+        doc! {"challenge_id": challenge_id, "expires_at": { "$gt": Utc::now() } },
+        None
+    ).await
+      .map_err(|_| Error::from("database error"))?;
 
-  //       let new_challenge = ChallengeSchema {
-  //           challenge_id: challenge_id.clone(),
-  //           user_id: username.to_string(), 
-  //           created_at: self.get_current_timestamp(),
-  //           expires_at: self.get_current_timestamp(),
-  //       };
+    let challenge = existing_challenge
+      .map(|doc| self.document_to_challenge(doc));
 
-  //       self.challenges.insert_one(new_challenge, None)
-  //           .await
-  //           .map_err(|_| Error::from("database error"))?;
+    if let Some(c) = challenge {
+        Ok(c.challenge_id.as_bytes().to_vec()) 
+    } else {
+        let challenge_id: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(32) 
+            .map(char::from)
+            .collect();
 
+        let new_challenge = ChallengeSchema {
+            challenge_id: challenge_id.clone(),
+            user_id: "sero".to_owned(), 
+            created_at: self.get_current_timestamp(),
+            expires_at: self.get_current_timestamp(),
+        };
 
-  //       Ok(challenge_id.as_bytes().to_vec())
-  //   }
-  // }
+        self.challenges_collection.insert_one(new_challenge, None)
+            .await
+            .map_err(|_| Error::from("database error"))?;
+
+        Ok(challenge_id.as_bytes().to_vec())
+    }
+  }
 
   fn create_challenge_document(&self, body: ChallengeSchema) -> Document {
     let note_history = doc! {

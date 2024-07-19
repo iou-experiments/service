@@ -78,6 +78,7 @@ pub struct NoteNullifierSchema {
   pub note: String, // Note structure serialized as JSON
   pub step: i32,
   pub owner: String, // Address serialized as JSON
+  // pub state: Vec<String>
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NullifierRequest {
