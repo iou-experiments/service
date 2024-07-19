@@ -95,6 +95,7 @@ pub struct NoteRequest {
 pub struct NoteHistoryRequest {
   pub owner_username: String,
   pub recipient_username: String,
+  pub note_history: NoteHistory,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

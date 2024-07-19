@@ -47,7 +47,8 @@ pub async fn create_and_transfer_note_history(
 ) {
   let note = db.create_and_transfer_note_history(
     &payload.owner_username,
-    &payload.recipient_username, 
+    &payload.recipient_username,
+    payload.note_history,
   );
 
   note.await

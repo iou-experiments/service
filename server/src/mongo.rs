@@ -534,12 +534,17 @@ impl IOUServiceDB {
   pub async fn create_and_transfer_note_history(
     &self,
     current_owner_username: &str,
-    recipient_username: &str, 
+    recipient_username: &str,
+    body: NoteHistory
   ) {
     let recipient = self.get_user(recipient_username);
     let owner = self.get_user(current_owner_username);
 
-    println!("{:#?} {:#?}", recipient.await.user.pubkey, owner.await.user.pubkey)
+    println!("{:#?} {:#?}", recipient.await.user.pubkey, owner.await.user.pubkey);
+
+    let note_doc = self.create_note_history_document(body.clone());
+    let note = self.doc_to_note_history(note_doc, body.current_note);
+    println!("{:#?}", note);
   }
 
   //auth & challenges
@@ -605,17 +610,6 @@ impl IOUServiceDB {
 
         Ok(challenge_id.as_bytes().to_vec())
     }
-  }
-
-  fn create_challenge_document(&self, body: ChallengeSchema) -> Document {
-    let note_history = doc! {
-      "challenge_id": body.challenge_id.clone(),
-      "user_id": body.user_id.clone(),
-      "created_at": body.created_at,
-      "expires_at": body.expires_at,
-    };
-
-    note_history
   }
 
   fn document_to_challenge(&self, doc: Document) -> ChallengeSchema {
