@@ -63,7 +63,7 @@ pub async fn verify_challenge(
   }
 }
 
-async fn validate_session(
+pub async fn validate_session(
   Extension(state): Extension<IOUServiceDB>,
   Json(session_id): Json<String>,
 ) -> Result<String, (StatusCode, String)> {
