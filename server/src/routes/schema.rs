@@ -78,11 +78,12 @@ pub struct NoteNullifierSchema {
   pub note: String, // Note structure serialized as JSON
   pub step: i32,
   pub owner: String, // Address serialized as JSON
-  // pub state: Vec<String>
+  pub state: String
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NullifierRequest {
   pub nullifier: String,
+  pub state: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -104,4 +105,10 @@ pub struct ChallengeSchema {
   pub user_id: String,      // Link the challenge to a user (you could use ObjectId here too)
   pub created_at: i64,
   pub expires_at: i64,
+}
+
+pub struct AuthData {
+  pub username: String,
+  pub signature_hex: String,
+  pub challenge_id: String,
 }

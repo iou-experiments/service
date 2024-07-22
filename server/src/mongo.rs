@@ -10,6 +10,7 @@ use crate::routes::{
     CreateUserSchema, MessageRequestSchema, NoteHistory, User, ChallengeSchema
   }
 };
+
 use mongodb::options::IndexOptions;
 use mongodb::IndexModel;
 use std::env;
@@ -18,6 +19,7 @@ use chrono::Utc;
 use futures::stream::TryStreamExt;
 use hex;
 use rand::Rng;
+use ed25519_dalek::{PublicKey, Signature};
 use rand::distributions::Alphanumeric;
 
 #[derive(Debug, Clone)]
@@ -75,7 +77,7 @@ impl IOUServiceDB {
       note_history,
       note_history_collection,
       challenges,
-      challenges_collection
+      challenges_collection,
     }
   }
 
@@ -98,7 +100,6 @@ impl IOUServiceDB {
   // In October note 2: I make note 1000$ send to Onur 500 -> Produce a nullifier and the following state
   // NULLIFIER VECTOR
 
-  
   fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
     let user = User {
       id: doc.get_str("_id").ok().map(|s| s.to_owned()),
@@ -309,6 +310,7 @@ impl IOUServiceDB {
       note: doc.get_str("note").ok().map(|s| s.to_owned()).unwrap(),
       step: doc.get_i32("step").ok().unwrap(),
       owner: doc.get_str("owner").ok().map(|s| s.to_owned()).unwrap(),
+      state: doc.get_str("state").ok().map(|s| s.to_owned()).unwrap(),
     };
 
     NullifierResponseData {
@@ -323,6 +325,7 @@ impl IOUServiceDB {
       "note": body.note.clone(),
       "step": body.step,
       "owner": body.owner.clone(),
+      "state": body.state.clone()
     };
 
     nullifier
@@ -332,7 +335,7 @@ impl IOUServiceDB {
     let document = self.create_note_nullifier_document(body);
     let options: IndexOptions = IndexOptions::builder().unique(true).build();
     let index = IndexModel::builder()
-        .keys(doc! {"nullifier": 2})
+        .keys(doc! {"state": 2})
         .options(options)
         .build();
     let res = match self.nullifiers.create_index(index, None).await {
@@ -368,20 +371,21 @@ impl IOUServiceDB {
     Ok(self.doc_to_nullifier(nullifier_doc))
   }
 
-  pub async fn get_nullifier(&self, nullifier: &str) -> NullifierResponse {
+  pub async fn get_nullifier(&self, nullifier: &str, expected_state: &str) -> NullifierResponse { 
     let nullifier_doc = self
-    .nullifiers
-    .find_one(doc! {"nullifier": nullifier}, None)
-    .await;
+        .nullifiers
+        .find_one(doc! {"nullifier": nullifier}, None)
+        .await;
 
     match nullifier_doc {
       Ok(Some(doc)) => {
-        // 1. Get the owner from the nullifier document
-        let owner_result = doc.get_str("owner");
-
-        if let Ok(owner) = owner_result {
-            // 2. Update the user document
-            let update_result = self.users
+        // 1. Check if the state matches the expected_state
+        if let Some(state) = doc.get_str("state").ok() { 
+          if state == expected_state {
+            // 2.  State matches, proceed with your logic 
+            //     (e.g., mark user as double-spending)
+            if let Ok(owner) = doc.get_str("owner") {
+              let update_result = self.users
                 .update_one(
                     doc! {"username": owner}, // Assuming username is used for identification
                     doc! {"$set": {"has_double_spent": true}},
@@ -389,26 +393,31 @@ impl IOUServiceDB {
                 )
                 .await;
 
-            // Handle potential errors during the update
-            if let Err(err) = update_result {
+              if let Err(err) = update_result {
                 eprintln!("Error updating user: {:?}", err);
-                // You might want to return an error response here as well
+                // Handle the error appropriately 
+              }
+            } else {
+              eprintln!("Owner not found in nullifier document.");
             }
+              println!("WARNING: USER IS ATTEMPTING TO DOUBLE SPEND, we have flagged their account.");
+              return NullifierResponse::Ok(self.doc_to_nullifier(doc).nullifier);
+          } else {
+              // State does not match, return a different response (or error)
+              return NullifierResponse::Error; // Or a more specific error type
+          }
         } else {
-            eprintln!("Owner not found in nullifier document.");
+            eprintln!("State field not found in nullifier document.");
+            return NullifierResponse::Error; // Or a specific error type
         }
-        println!("WARNING: USER IS ATTEMPTING TO DOUBLE SPEND, we have flagged their account.");
-        NullifierResponse::Ok(self.doc_to_nullifier(doc).nullifier)
       }
-      Ok(None) => NullifierResponse::NotFound, // Handle case where no document is found
-      Err(err) => { 
-          // Handle the error, e.g., log it
-          println!("Error getting nullifier: {:?}", err);
-          NullifierResponse::Error 
+      Ok(None) => NullifierResponse::NotFound, // Nullifier not found 
+      Err(err) => {
+          eprintln!("Error getting nullifier: {:?}", err);
+          NullifierResponse::Error // Or handle the error more gracefully
       }
     }
   } 
-
   // Notes
   fn doc_to_note(&self, doc: Document) -> NoteResponse {
     let note = NoteSchema {
@@ -555,61 +564,63 @@ impl IOUServiceDB {
     challenge_id: &str,
   ) -> Result<bool, Error> {
 
-    let challenge = self.get_challenge(challenge_id).await; // Implement this
+    let challenge = self.get_challenge(Some(challenge_id), username).await; // Implement this
     let user_doc = self.users.find_one(doc! {"username": username}, None).await?;
     let public_key_bytes = hex::decode(
         user_doc.unwrap().get_str("pubkey")?
     ).map_err(|_| Error::from("owner pubkey not found"))?;
 
-    let public_key: ed25519_dalek::PublicKey = ed25519_dalek::PublicKey::from_bytes(&public_key_bytes)?; 
+    let public_key: PublicKey = PublicKey::from_bytes(&public_key_bytes)?; 
 
     let signature_bytes = hex::decode(signature_hex).map_err(|_| Error::from("no existing challenge"))?;
-    let signature: ed25519_dalek::Signature = ed25519_dalek::Signature::from_bytes(&signature_bytes)?;
+    let signature: Signature = Signature::from_bytes(&signature_bytes)?;
 
     let is_valid = public_key.verify_strict(&challenge.unwrap(), &signature).is_ok();
 
     if is_valid {
-        Ok(true)
+      Ok(true)
     } else {
-        Ok(false)
+      Ok(false)
     }
   }
 
   async fn get_challenge(
     &self, 
-    challenge_id: &str,
-  ) -> Result<Vec<u8>, Error> {
-    let existing_challenge = self.challenges.find_one(
-        doc! {"challenge_id": challenge_id, "expires_at": { "$gt": Utc::now() } },
+    challenge_id: Option<&str>, // Make challenge_id optional
+    username: &str,
+) -> Result<Vec<u8>, Error> { 
+    if let Some(challenge_id) = challenge_id {
+      // 1. If challenge_id is provided, try to find it in the database
+      let existing_challenge = self.challenges.find_one(
+        doc! {"challenge_id": challenge_id, "expires_at": { "$gt": Utc::now() }},
         None
-    ).await
+      ).await
       .map_err(|_| Error::from("database error"))?;
 
-    let challenge = existing_challenge
-      .map(|doc| self.document_to_challenge(doc));
+      if let Some(doc) = existing_challenge {
+        let challenge = self.document_to_challenge(doc); // Assuming you have this function
+        return Ok(challenge.challenge_id.as_bytes().to_vec());
+      } 
+    } 
 
-    if let Some(c) = challenge {
-        Ok(c.challenge_id.as_bytes().to_vec()) 
-    } else {
-        let challenge_id: String = rand::thread_rng()
-            .sample_iter(&Alphanumeric)
-            .take(32) 
-            .map(char::from)
-            .collect();
+    let challenge_id: String = rand::thread_rng()
+      .sample_iter(&Alphanumeric)
+      .take(32) 
+      .map(char::from)
+      .collect();
 
-        let new_challenge = ChallengeSchema {
-            challenge_id: challenge_id.clone(),
-            user_id: "sero".to_owned(), 
-            created_at: self.get_current_timestamp(),
-            expires_at: self.get_current_timestamp(),
-        };
+    let new_challenge = ChallengeSchema {
+      challenge_id: challenge_id.clone(),
+      user_id: username.to_owned(), 
+      created_at: self.get_current_timestamp(),
+      expires_at: self.get_current_timestamp() + 300, 
+    };
 
-        self.challenges_collection.insert_one(new_challenge, None)
-            .await
-            .map_err(|_| Error::from("database error"))?;
+    self.challenges_collection.insert_one(new_challenge, None)
+      .await
+      .map_err(|_| Error::from("database error"))?;
 
-        Ok(challenge_id.as_bytes().to_vec())
-    }
+    Ok(challenge_id.as_bytes().to_vec())
   }
 
   fn document_to_challenge(&self, doc: Document) -> ChallengeSchema {
