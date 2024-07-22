@@ -1,13 +1,9 @@
-use axum::{body::Body, extract::Extension, http::StatusCode, middleware::Next, Json};
+use axum::{extract::Extension, http::StatusCode, Json, response::IntoResponse};
 use crate::mongo::IOUServiceDB;
 use crate::routes::schema::User;
-use super::{response::UserSingleResponse, schema::{CreateUserSchema, UsernameRequest, AuthData}};
+use super::{response::UserSingleResponse, schema::{AuthData, CreateUserSchema, UsernameRequest}};
 use mongodb::bson::doc;
-
-use axum::{
-  response::Response,
-  extract::Request,
-};
+use uuid::Uuid;
 
 #[axum::debug_handler]
 pub async fn get_user_with_username(
@@ -39,18 +35,43 @@ pub async fn create_user(Extension(db): Extension<IOUServiceDB>, Json(payload): 
   }
 }
 
-pub async fn auth_middleware<B>(
-  Extension(db): Extension<IOUServiceDB>,
-  AuthData { username, signature_hex, challenge_id }: AuthData,
-  request: Request<Body>,
-  next: Next,
-) -> Result<Response, (StatusCode, String)> {
-  let is_authenticated = db.authenticate_user(&username, &signature_hex, &challenge_id).await
-      .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Authentication error: {}", e)))?;
-
-  if is_authenticated {
-      Ok(next.run(request).await)
-  } else {
-      Err((StatusCode::UNAUTHORIZED, "Authentication failed".to_string()))
+#[axum::debug_handler]
+pub async fn create_and_send_challenge(
+  Extension(state): Extension<IOUServiceDB>,
+  Json(username): Json<String>,
+) -> Result<Json<String>, (StatusCode, Json<String>)> {
+  match state.get_challenge(None, &username).await {
+    Ok(challenge) => Ok(Json(hex::encode(challenge))),
+    Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json("Failed to create challenge".to_string()))),
   }
+}
+
+pub async fn verify_challenge(
+  Extension(state): Extension<IOUServiceDB>,
+  Json(auth_request): Json<AuthData>,
+) -> impl IntoResponse {
+  match state.authenticate_user(&auth_request.username, &auth_request.signature_hex, &auth_request.challenge_id).await {
+    Ok(true) => {
+      // Create a session token
+      let session_id = Uuid::new_v4().to_string();
+      state.insert_session(session_id.clone(), auth_request.username.clone());
+
+      Ok((StatusCode::OK, Json(session_id)))
+    },
+    Ok(false) => Ok((StatusCode::UNAUTHORIZED, Json("Invalid signature".to_string()))),
+    Err(_) => Err((StatusCode::INTERNAL_SERVER_ERROR, "Authentication failed".to_string())),
+  }
+}
+
+async fn validate_session(
+  Extension(state): Extension<IOUServiceDB>,
+  Json(session_id): Json<String>,
+) -> Result<String, (StatusCode, String)> {
+  let sessions = state.sessions.read().unwrap();
+
+  if sessions.get(&session_id).is_some() {
+    Ok("authenticated".to_owned())
+} else {
+    Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
+}
 }

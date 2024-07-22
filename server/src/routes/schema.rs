@@ -107,6 +107,7 @@ pub struct ChallengeSchema {
   pub expires_at: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AuthData {
   pub username: String,
   pub signature_hex: String,

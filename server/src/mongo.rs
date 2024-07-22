@@ -1,6 +1,8 @@
 use ark_crypto_primitives::Error;
 use bson::{doc, Document};
 use mongodb::{ Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion }, Client, Collection};
+use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
 use crate::routes::{
   error::MyError,
   response::{
@@ -36,6 +38,7 @@ pub struct IOUServiceDB {
   pub nullifiers_collection: Collection<NoteNullifierSchema>,
   pub challenges_collection: Collection<ChallengeSchema>,
   pub challenges: Collection<Document>,
+  pub sessions: Arc<RwLock<HashMap<String, String>>>, 
 }
 
 impl IOUServiceDB {
@@ -64,6 +67,7 @@ impl IOUServiceDB {
     // auth challenge
     let challenges_collection = db.collection("challenges");
     let challenges = db.collection::<Document>("challenges");
+    let sessions = Arc::new(RwLock::new(HashMap::new()));
 
     Self {
       users,
@@ -78,6 +82,7 @@ impl IOUServiceDB {
       note_history_collection,
       challenges,
       challenges_collection,
+      sessions
     }
   }
 
@@ -584,7 +589,11 @@ impl IOUServiceDB {
     }
   }
 
-  async fn get_challenge(
+  pub fn insert_session(&self, session_id: String, username: String) {
+    self.sessions.write().unwrap().insert(session_id, username);
+  }
+
+  pub async fn get_challenge(
     &self, 
     challenge_id: Option<&str>, // Make challenge_id optional
     username: &str,
