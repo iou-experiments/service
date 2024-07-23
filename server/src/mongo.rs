@@ -558,39 +558,19 @@ impl IOUServiceDB {
     recipient_username: &str,
     body: NoteHistory,
     message: String,
-  ) {
-    let recipient_future = {
-      let db = self.clone();
-      let recipient_username = recipient_username.to_string();
-      tokio::spawn(async move { db.get_user(&recipient_username).await })
-    };
-    let owner_future = {
-      let db = self.clone();
-      let current_owner_username = current_owner_username.to_string();
-      tokio::spawn(async move { db.get_user(&current_owner_username).await })
-    };
-    
-    let (recipient, owner) = tokio::join!(recipient_future, owner_future);
-    let recipient = recipient.unwrap();
-    let owner = owner.unwrap();
-
-    let recipient_pubkey = recipient.user.pubkey.ok_or(Error::from("no pubkey"));
-    let recipient_pubkey_bytes = hex::decode(recipient_pubkey.unwrap().as_bytes())
-      .map_err(|_| Error::from("invalid key"));
-    let recipient_public_key: PublicKey = PublicKey::from_bytes(&recipient_pubkey_bytes.unwrap())
-      .map_err(|_| Error::from("pubkey could not be generated")).unwrap();
-  
+  ) -> MessageSingleResponse {
     let stored_note = self.store_note(&body.current_note.clone()).await;
 
     let message = MessageRequestSchema {
-      recipient: recipient.user.username.expect("should be username"),
-      sender: owner.user.username.expect("should be username"),
+      recipient: recipient_username.to_owned(),
+      sender: current_owner_username.to_owned(),
       message: message.to_owned(),
       attachment_id: stored_note.unwrap().note._id,
     };
 
-    
+    let sent = self.send_message(&message);
 
+    sent.await.expect("msg sent")
   }
 
   //auth & challenges

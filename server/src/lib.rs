@@ -43,7 +43,7 @@ pub async fn run() {
     // store
     .route("/store_nullifier", post(store_nullifier))
     // create and transfer notes history
-    .route("/create_and_transfer_note_history", get(create_and_transfer_note_history))
+    .route("/create_and_transfer_note_history", post(create_and_transfer_note_history))
   )
   // fallback, state, and db
   .fallback(handler_404)

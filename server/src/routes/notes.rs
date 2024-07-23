@@ -1,10 +1,8 @@
 use axum::{extract::Extension, http::StatusCode, Json};
 use crate::mongo::IOUServiceDB;
 use crate::routes::schema::NoteSchema;
-use super::{response::NoteResponse, schema::{
-  NoteHistoryRequest,
-  SaveNoteRequestSchema,
-  NoteRequest
+use super::{response::{MessageSingleResponse, NoteResponse}, schema::{
+  NoteHistoryRequest, NoteRequest, SaveNoteRequestSchema
 }};
 use mongodb::bson::doc;
 
@@ -48,13 +46,15 @@ pub async fn save_note(Extension(db): Extension<IOUServiceDB>, Json(payload): Js
 pub async fn create_and_transfer_note_history(
   Extension(db): Extension<IOUServiceDB>,
   Json(payload): Json<NoteHistoryRequest>
-) {
-  let note = db.create_and_transfer_note_history(
+) -> Result<Json<MessageSingleResponse>, StatusCode> {
+  // Call the database function
+  let res: MessageSingleResponse = db.create_and_transfer_note_history(
     &payload.owner_username,
     &payload.recipient_username,
     payload.note_history,
     payload.message,
-  );
+  )
+  .await;// Handle errors
 
-  note.await
+  Ok(Json(res)) 
 }
