@@ -34,44 +34,7 @@ This server implements a mechanism to detect and prevent double-spending using:
   - Uses EDDSA for secure, passwordless authentication.
   - Clients sign randomly generated challenges to prove ownership of their private keys.
 
-### Flow Charts
-
-**1. User Registration:**
-
-```mermaid
-graph LR
-A[Client] --> B{Server}
-B --> C{Create user document}
-C --> D{Store in "users" collection}
-D --> E{Return success response}
-E --> A
-```
-
-**2. IOU Creation:**
-
-```mermaid
-graph LR
-A[Client] --> B{Server}
-B --> C{Create IOU document}
-C --> D{Store in "notes" collection}
-D --> E{Update user document}
-E --> F{Return success response}
-F --> A
-```
-
-**3. IOU Transfer:**
-
-```mermaid
-graph LR
-A[Client] --> B{Server}
-B --> C{Retrieve recipient public key}
-C --> D{Encrypt IOU history}
-D --> E{Store encrypted history (optional)}
-E --> F{Send message with attachment}
-F --> A
-```
-
-**4. Double-Spending Detection:**
+**1. Double-Spending Detection:**
 
 ```mermaid
 graph LR
@@ -83,7 +46,7 @@ D --> A
 E --> A
 ```
 
-**5. Challenge-Response Authentication:**
+**2. Challenge-Response Authentication:**
 
 ```mermaid
 graph LR
@@ -101,6 +64,3 @@ H --> A
 I --> A
 ```
 
-**Note:** These flowcharts provide a high-level overview. You can customize the logic and implementation details to fit your specific application's requirements. 
-
-This README provides a basic understanding of the server's purpose and functionality. You can expand it with more detailed explanations of each feature, API endpoints, and instructions for setting up and running the server. 
