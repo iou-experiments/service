@@ -1,10 +1,8 @@
 use crate::routes::schema::User;
 use serde::Serialize;
-use crate::routes::schema::{MessageSchema, NoteNullifierSchema};
+use crate::routes::schema::{MessageSchema, NoteNullifierSchema, NoteHistory, NoteSchema};
 
-use super::schema::NoteSchema;
-
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct UserSingleResponse {
     pub status: &'static str,
     pub user: User,
@@ -31,4 +29,10 @@ pub enum NullifierResponse {
 pub struct NoteResponse {
     pub status: &'static str,
     pub note: NoteSchema,
+}
+
+#[derive(Debug, Serialize)]
+pub struct NoteHistoryResponse {
+    pub status: &'static str,
+    pub note_history: NoteHistory,
 }

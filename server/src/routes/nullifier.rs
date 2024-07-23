@@ -8,7 +8,7 @@ pub async fn verify_nullifier(
   Extension(db): Extension<IOUServiceDB>,
   Json(payload): Json<NullifierRequest>
 ) -> Result<Json<NullifierResponse>, String> {
-  let nullifier_response = db.get_nullifier(&payload.nullifier).await;
+  let nullifier_response = db.get_nullifier(&payload.nullifier, &payload.state).await;
   Ok(Json(nullifier_response))
 }
 
@@ -19,6 +19,7 @@ pub async fn store_nullifier(Extension(db): Extension<IOUServiceDB>, Json(payloa
     note: payload.note,
     step: payload.step,
     owner: payload.owner,
+    state: payload.state, 
   };
   println!("{:#?}", new_nullifier);
   match db.store_nullifier(&new_nullifier).await {

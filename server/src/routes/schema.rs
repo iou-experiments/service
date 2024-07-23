@@ -29,22 +29,36 @@ pub struct UsernameRequest {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteSchema {
-    pub(crate) asset_hash: String,
-    pub(crate) owner: String,
-    pub(crate) value: u64,
-    pub(crate) step: u32,
-    pub(crate) parent_note: String,
-    pub(crate) out_index: String,
-    pub(crate) blind: String,
+  pub(crate) asset_hash: String,
+  pub(crate) owner: String,
+  pub(crate) value: u64,
+  pub(crate) step: u32,
+  pub(crate) parent_note: String,
+  pub(crate) out_index: String,
+  pub(crate) blind: String,
+  pub(crate) _id: Option<Bson>
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct NoteHistory {
-    pub(crate) asset: String,
-    pub(crate) steps: Vec<String>,
-    pub(crate) current_note: NoteSchema,
-    pub(crate) sibling: String,
+pub struct SaveNoteRequestSchema {
+  pub(crate) asset_hash: String,
+  pub(crate) owner: String,
+  pub(crate) value: u64,
+  pub(crate) step: u32,
+  pub(crate) parent_note: String,
+  pub(crate) out_index: String,
+  pub(crate) blind: String,
 }
+
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct NoteHistory {
+  pub(crate) asset: String,
+  pub(crate) steps: Vec<String>,
+  pub(crate) current_note: SaveNoteRequestSchema,
+  pub(crate) sibling: String,
+}
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NoteHistorySchema {
@@ -68,21 +82,49 @@ pub struct MessageRequestSchema {
   pub recipient: String,
   pub sender: String,
   pub message: String,
-  pub attachment_id: String,
+  pub attachment_id: Option<Bson>,
 }
+
+// We must add a future state vector
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NoteNullifierSchema {
   pub nullifier: String,
   pub note: String, // Note structure serialized as JSON
   pub step: i32,
   pub owner: String, // Address serialized as JSON
+  pub state: String
 }
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NullifierRequest {
   pub nullifier: String,
+  pub state: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NoteRequest {
   pub owner_pub_key: String,
+  pub step: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct NoteHistoryRequest {
+  pub owner_username: String,
+  pub recipient_username: String,
+  pub note_history: NoteHistory,
+  pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ChallengeSchema {
+  pub challenge_id: String, // A unique identifier for the challenge
+  pub user_id: String,      // Link the challenge to a user (you could use ObjectId here too)
+  pub created_at: i64,
+  pub expires_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AuthData {
+  pub username: String,
+  pub signature_hex: String,
+  pub challenge_id: String,
 }
