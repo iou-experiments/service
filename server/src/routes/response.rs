@@ -2,7 +2,7 @@ use crate::routes::schema::User;
 use serde::Serialize;
 use crate::routes::schema::{MessageSchema, NoteNullifierSchema, NoteHistory, NoteSchema};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct UserSingleResponse {
     pub status: &'static str,
     pub user: User,

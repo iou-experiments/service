@@ -1,7 +1,11 @@
 use axum::{extract::Extension, http::StatusCode, Json};
 use crate::mongo::IOUServiceDB;
 use crate::routes::schema::NoteSchema;
-use super::{response::NoteResponse, schema::{NoteHistoryRequest, NoteRequest}};
+use super::{response::NoteResponse, schema::{
+  NoteHistoryRequest,
+  SaveNoteRequestSchema,
+  NoteRequest
+}};
 use mongodb::bson::doc;
 
 #[axum::debug_handler]
@@ -22,7 +26,7 @@ pub async fn get_notes(
 
 #[axum::debug_handler]
 pub async fn save_note(Extension(db): Extension<IOUServiceDB>, Json(payload): Json<NoteSchema>) -> Result<Json<NoteResponse>, StatusCode> {
-  let new_note = NoteSchema {
+  let new_note = SaveNoteRequestSchema {
     owner: payload.owner,
     asset_hash: payload.asset_hash,
     value: payload.value,
@@ -49,6 +53,7 @@ pub async fn create_and_transfer_note_history(
     &payload.owner_username,
     &payload.recipient_username,
     payload.note_history,
+    payload.message,
   );
 
   note.await

@@ -29,22 +29,36 @@ pub struct UsernameRequest {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteSchema {
-    pub(crate) asset_hash: String,
-    pub(crate) owner: String,
-    pub(crate) value: u64,
-    pub(crate) step: u32,
-    pub(crate) parent_note: String,
-    pub(crate) out_index: String,
-    pub(crate) blind: String,
+  pub(crate) asset_hash: String,
+  pub(crate) owner: String,
+  pub(crate) value: u64,
+  pub(crate) step: u32,
+  pub(crate) parent_note: String,
+  pub(crate) out_index: String,
+  pub(crate) blind: String,
+  pub(crate) _id: Option<Bson>
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct SaveNoteRequestSchema {
+  pub(crate) asset_hash: String,
+  pub(crate) owner: String,
+  pub(crate) value: u64,
+  pub(crate) step: u32,
+  pub(crate) parent_note: String,
+  pub(crate) out_index: String,
+  pub(crate) blind: String,
+}
+
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteHistory {
   pub(crate) asset: String,
   pub(crate) steps: Vec<String>,
-  pub(crate) current_note: NoteSchema,
+  pub(crate) current_note: SaveNoteRequestSchema,
   pub(crate) sibling: String,
 }
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct NoteHistorySchema {
@@ -68,7 +82,7 @@ pub struct MessageRequestSchema {
   pub recipient: String,
   pub sender: String,
   pub message: String,
-  pub attachment_id: String,
+  pub attachment_id: Option<Bson>,
 }
 
 // We must add a future state vector
@@ -97,6 +111,7 @@ pub struct NoteHistoryRequest {
   pub owner_username: String,
   pub recipient_username: String,
   pub note_history: NoteHistory,
+  pub message: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

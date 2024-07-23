@@ -6,10 +6,15 @@ use std::collections::HashMap;
 use crate::routes::{
   error::MyError,
   response::{
-    MessageSingleResponse, NoteHistoryResponse, NoteResponse, NullifierResponse, NullifierResponseData, UserSingleResponse
+    MessageSingleResponse,
+    NoteHistoryResponse,
+    NoteResponse,
+    NullifierResponse,
+    NullifierResponseData,
+    UserSingleResponse
   },
   schema::{
-    CreateUserSchema, MessageRequestSchema, NoteHistory, User, ChallengeSchema
+    ChallengeSchema, CreateUserSchema, MessageRequestSchema, NoteHistory, SaveNoteRequestSchema, User
   }
 };
 
@@ -423,6 +428,7 @@ impl IOUServiceDB {
       }
     }
   } 
+  
   // Notes
   fn doc_to_note(&self, doc: Document) -> NoteResponse {
     let note = NoteSchema {
@@ -433,12 +439,13 @@ impl IOUServiceDB {
       parent_note: doc.get_str("parent_note").ok().map(|s| s.to_owned()).unwrap(),
       out_index: doc.get_str("out_index").ok().map(|s| s.to_owned()).unwrap(),
       blind: doc.get_str("blind").ok().map(|s| s.to_owned()).unwrap(),
+      _id: doc.get("_id").to_owned().cloned()
     };
 
     NoteResponse { status: "success", note }
   }
 
-  fn create_note_document(&self, body: &NoteSchema) -> Document {
+  fn create_note_document(&self, body: &SaveNoteRequestSchema) -> Document {
     let note = doc! {
       "asset_hash": body.asset_hash.clone(),
       "owner": body.owner.clone(),
@@ -452,7 +459,7 @@ impl IOUServiceDB {
     note
   }
 
-  pub async fn store_note(&self, body: &NoteSchema) -> Result<NoteResponse, Error> {
+  pub async fn store_note(&self, body: &SaveNoteRequestSchema) -> Result<NoteResponse, Error> {
     let document = self.create_note_document(body);
 
     let insert_result = match self.notes.insert_one(document, None).await {
@@ -518,7 +525,7 @@ impl IOUServiceDB {
   }
 
   // Notes History
-  fn doc_to_note_history(&self, doc: Document, note: NoteSchema) -> NoteHistoryResponse {
+  fn doc_to_note_history(&self, doc: Document, note: SaveNoteRequestSchema) -> NoteHistoryResponse {
     let note_history = NoteHistory {
       current_note: note,
       asset: doc.get_str("asset").ok().map(|s| s.to_owned()).unwrap(),
@@ -549,16 +556,41 @@ impl IOUServiceDB {
     &self,
     current_owner_username: &str,
     recipient_username: &str,
-    body: NoteHistory
+    body: NoteHistory,
+    message: String,
   ) {
-    let recipient = self.get_user(recipient_username);
-    let owner = self.get_user(current_owner_username);
+    let recipient_future = {
+      let db = self.clone();
+      let recipient_username = recipient_username.to_string();
+      tokio::spawn(async move { db.get_user(&recipient_username).await })
+    };
+    let owner_future = {
+      let db = self.clone();
+      let current_owner_username = current_owner_username.to_string();
+      tokio::spawn(async move { db.get_user(&current_owner_username).await })
+    };
+    
+    let (recipient, owner) = tokio::join!(recipient_future, owner_future);
+    let recipient = recipient.unwrap();
+    let owner = owner.unwrap();
 
-    println!("{:#?} {:#?}", recipient.await.user.pubkey, owner.await.user.pubkey);
+    let recipient_pubkey = recipient.user.pubkey.ok_or(Error::from("no pubkey"));
+    let recipient_pubkey_bytes = hex::decode(recipient_pubkey.unwrap().as_bytes())
+      .map_err(|_| Error::from("invalid key"));
+    let recipient_public_key: PublicKey = PublicKey::from_bytes(&recipient_pubkey_bytes.unwrap())
+      .map_err(|_| Error::from("pubkey could not be generated")).unwrap();
+  
+    let stored_note = self.store_note(&body.current_note.clone()).await;
 
-    let note_doc = self.create_note_history_document(body.clone());
-    let note = self.doc_to_note_history(note_doc, body.current_note);
-    println!("{:#?}", note);
+    let message = MessageRequestSchema {
+      recipient: recipient.user.username.expect("should be username"),
+      sender: owner.user.username.expect("should be username"),
+      message: message.to_owned(),
+      attachment_id: stored_note.unwrap().note._id,
+    };
+
+    
+
   }
 
   //auth & challenges
