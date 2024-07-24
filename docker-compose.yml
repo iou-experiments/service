@@ -7,7 +7,7 @@ services:
     ports:
       - "3000:3000" # Map port 3000 on the host to the container
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/your_database_name
+      - MONGODB_URI=${MONGODB_URI}
     depends_on:
       - mongodb # Ensure MongoDB starts first
 

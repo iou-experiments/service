@@ -30,7 +30,7 @@ COPY --from=build /app/target/release/service-http /app/service-http
 EXPOSE 3000
 
 # Environment variable for MongoDB connection (replace with your actual URI)
-ENV MONGODB_URI=mongodb://your_mongodb_host:27017/your_database_name
+ENV MONGODB_URI=${MONGODB_URI}
 
 # Command to start the server
 CMD ["/app/service-http"]
