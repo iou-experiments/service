@@ -105,11 +105,6 @@ impl IOUServiceDB {
     user
   }
 
-  // THIS IS VALID
-  // In september note 1: I make note 1000$ send to Onur 500 -> Produce a nullifier and state and the following state
-  // In October note 2: I make note 1000$ send to Onur 500 -> Produce a nullifier and the following state
-  // NULLIFIER VECTOR
-
   fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
     let user = User {
       id: doc.get_str("_id").ok().map(|s| s.to_owned()),

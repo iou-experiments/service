@@ -1,36 +1,37 @@
 [package]
 name = "service_http"
-edition.workspace = true
-license.workspace = true
-version.workspace = true
+version = "0.1.0"
+edition = "2021"
+license = "MIT or Apache-2.0"
+rust-version = "1.75"
 
 [[bin]]
 path = "src/main.rs"
 name = "service-http"
 
 [dependencies]
-ark-bn254.workspace = true
-ark-crypto-primitives.workspace = true
-ark-ec.workspace = true
-ark-ff.workspace = true
-ark-serialize.workspace = true
-ark-std.workspace = true
-arkeddsa.workspace = true
-digest.workspace = true
-rand.workspace = true
-rand_core.workspace = true
-sha2.workspace = true
-axum.workspace = true
-tokio.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-mongodb.workspace = true
-bson.workspace = true
-chrono.workspace = true
-thiserror.workspace = true 
-axum-extra.workspace = true
-hex.workspace = true
-ed25519-dalek.workspace = true
+ark-bn254 = {version = "0.4.0"}
+ark-crypto-primitives = {version = "^0.4.0", default-features = false, features = ["sponge", "crh", "merkle_tree"]}
+ark-ec = {version = "^0.4.0", default-features = false}
+ark-ff = {version = "^0.4.0", default-features = false}
+ark-serialize = {version = "^0.4.0", default-features = false}
+ark-std = {version = "^0.4.0", default-features = false}
+arkeddsa = {git = "https://github.com/kilic/arkeddsa"}
+digest = "^0.10.0"
+rand = "0.8"
+rand_core = {version = "0.6", default-features = false}
+sha2 = {version = "0.10", default-features = false}
+axum = { version = "0.7.5", features = ["macros"] }
+tokio = { version = "1.38.0", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json = "1.0.120"
+mongodb = { version = "2.7.0", features = ["bson-chrono-0_4"] }
+bson = { version = "2", features = ["chrono-0_4"] }
+chrono = "0.4"
+thiserror = "1.0.40"
+axum-extra = "0.9.3"
+hex = "0.4.3"
+ed25519-dalek = "1.0.1"
 futures = "0.3.30"
 async-session = "3.0.0"
 uuid = { version = "1", features = ["v4"] }
