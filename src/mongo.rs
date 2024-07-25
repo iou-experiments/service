@@ -91,6 +91,30 @@ impl IOUServiceDB {
     }
   }
 
+
+  // Helpers
+
+  async fn insert_and_fetch<T>(
+    &self,
+    collection: &Collection<Document>,
+    document: Document,
+    transform: impl Fn(Document) -> T,
+  ) -> Result<T, Error> {
+    let insert_result = collection.insert_one(document, None).await?;
+    
+    let new_id = insert_result
+      .inserted_id
+      .as_object_id()
+      .ok_or_else(|| Error::from("Failed to get inserted _id"))?;
+
+    let fetched_doc = collection
+      .find_one(doc! {"_id": new_id}, None)
+      .await?
+      .ok_or_else(|| Error::from("Document not found after insertion"))?;
+
+    Ok(transform(fetched_doc))
+  }
+
   // User
   fn create_user_document(&self, body: &CreateUserSchema) -> Document {
     let user = doc! {
@@ -136,53 +160,19 @@ impl IOUServiceDB {
   pub async fn create_user(&self, body: &CreateUserSchema) -> Result<UserSingleResponse, Error> {
     let document = self.create_user_document(body);
 
-    let options: IndexOptions = IndexOptions::builder().unique(true).build();
-
+    let options = IndexOptions::builder().unique(true).build();
     let index = IndexModel::builder()
-        .keys(doc! {"username": 1})
-        .options(options)
-        .build();
+      .keys(doc! {"username": 1})
+      .options(options)
+      .build();
 
-    let res = match self.users.create_index(index, None).await {
-        Ok(_) => {}
-        Err(e) => return Err(Error::from(e)),
-    };
+    self.users.create_index(index, None).await?;
 
-    println!("{:#?}", res);
-    let insert_result = match self.users.insert_one(document, None).await {
-      Ok(result) => {
-        println!("{:?}", result);
-        result
-      },
-      Err(e) => {
-        println!("{:?}", e);
-          if e.to_string()
-              .contains("E11000 duplicate key error collection")
-          {
-            return Err(Error::from(e));
-          }
-          return Err(Error::from(e));
-      }
-    };
-    println!("{:#?}", insert_result);
-    let new_id = insert_result
-      .inserted_id
-      .as_object_id()
-      .expect("issue with new _id");
-
-    let user_doc = match self
-      .users
-      .find_one(doc! {"_id": new_id}, None)
-      .await
-    {
-      Ok(Some(doc)) => doc,
-      Ok(None) => return Err(Error::from("User not found after insertion")),
-      Err(e) => return Err(Error::from(e))
-    };
+    let user = self.insert_and_fetch(&self.users, document, |doc| self.doc_to_user(doc).user).await?;
 
     Ok(UserSingleResponse {
       status: "success",
-      user: self.doc_to_user(user_doc).user
+      user
     })
   }
 
@@ -223,47 +213,19 @@ impl IOUServiceDB {
 
   pub async fn send_message(&self, body: &MessageRequestSchema) -> Result<MessageSingleResponse, Error> {
     let document = self.create_message_document(body);
-    let insert_result = match self.messages.insert_one(document, None).await {
-        Ok(result) => result,
-        Err(e) => {
-            if e.to_string()
-                .contains("E11000 duplicate key error collection")
-            {
-              return Err(Error::from(e));
-            }
-            return Err(Error::from(e));
-        }
-    };
-    let new_id = insert_result
-      .inserted_id
-      .as_object_id()
-      .expect("issue with new _id");
 
-    let message_doc = match self
-      .messages
-      .find_one(doc! {"_id": new_id}, None)
-      .await
-    {
-      Ok(Some(doc)) => doc,
-      Ok(None) => return Err(Error::from("User not found after insertion")),
-      Err(e) => return Err(Error::from(e))
-    };
+    let message = self.insert_and_fetch(&self.messages, document, |doc| self.doc_to_message(doc).message).await?;
 
-    let recipient_username = message_doc.get_str("recipient")
-    .map_err(|_| Error::from("Recipient username not found in message"))?;
+    self.users.update_one(
+        doc! { "username": message.recipient.clone() }, 
+        doc! { "$push": { "messages": message._id.clone() } },
+        None,
+    ).await?;
 
-    let update_result = self.users.update_one(
-      doc! { "username": recipient_username }, 
-      doc! { "$push": { "messages": new_id } },
-      None,
-    ).await;
-
-    if let Err(err) = update_result {
-      eprintln!("Error updating user document: {:?}", err); 
-      return Err(Error::from("Failed to update user document with message"));
-    }
-
-    Ok(self.doc_to_message(message_doc))
+    Ok(MessageSingleResponse {
+        status: "success",
+        message
+    })
   }
 
   pub async fn get_unread_messages(&self, username: &str) -> Result<Vec<MessageSchema>, Error> {
@@ -338,42 +300,21 @@ impl IOUServiceDB {
 
   pub async fn store_nullifier(&self, body: &NoteNullifierSchema) -> Result<NullifierResponseData, Error> {
     let document = self.create_note_nullifier_document(body);
-    let options: IndexOptions = IndexOptions::builder().unique(true).build();
+
+    let options = IndexOptions::builder().unique(true).build();
     let index = IndexModel::builder()
-        .keys(doc! {"state": 2})
-        .options(options)
-        .build();
-    let res = match self.nullifiers.create_index(index, None).await {
-        Ok(_) => {}
-        Err(e) => return Err(Error::from(e)),
-    };
-    let insert_result = match self.nullifiers.insert_one(document, None).await {
-        Ok(result) => result,
-        Err(e) => {
-            if e.to_string()
-                .contains("E11000 duplicate key error collection")
-            {
-                return Err(Error::from(e));
-            }
-            return Err(Error::from(e));
-        }
-    };
-    println!("{:#?}", res);
-    let new_id = insert_result
-      .inserted_id
-      .as_object_id()
-      .expect("issue with new _id");
-    let nullifier_doc = match self
-      .nullifiers
-      .find_one(doc! {"_id": new_id}, None)
-      .await
-    {
-      Ok(Some(doc)) => doc,
-      Ok(None) => return Err(Error::from("User not found after insertion")),
-      Err(e) => return Err(Error::from(e))
-    };
-    
-    Ok(self.doc_to_nullifier(nullifier_doc))
+      .keys(doc! {"state": 2})
+      .options(options)
+      .build();
+
+    self.nullifiers.create_index(index, None).await?;
+
+    let nullifier = self.insert_and_fetch(&self.nullifiers, document, |doc| self.doc_to_nullifier(doc).nullifier).await?;
+
+    Ok(NullifierResponseData {
+      status: "success",
+      nullifier
+    })
   }
 
   pub async fn get_nullifier(&self, nullifier: &str, expected_state: &str) -> NullifierResponse { 
@@ -457,48 +398,15 @@ impl IOUServiceDB {
   pub async fn store_note(&self, body: &SaveNoteRequestSchema) -> Result<NoteResponse, Error> {
     let document = self.create_note_document(body);
 
-    let insert_result = match self.notes.insert_one(document, None).await {
-      Ok(result) => result,
-      Err(e) => {
-        if e.to_string()
-            .contains("E11000 duplicate key error collection")
-        {
-            return Err(Error::from(e));
-        }
-        return Err(Error::from(e));
-      }
-    };
-  
-    let new_id = insert_result
-      .inserted_id
-      .as_object_id()
-      .expect("issue with new _id");
-  
-    let note_doc = match self
-      .notes
-      .find_one(doc! {"_id": new_id}, None)
-      .await
-    {
-      Ok(Some(doc)) => doc,
-      Ok(None) => return Err(Error::from("User not found after insertion")),
-      Err(e) => return Err(Error::from(e))
-    };
+    let note = self.insert_and_fetch(&self.notes, document, |doc| self.doc_to_note(doc).note).await?;
 
-    let note_owner = note_doc.get_str("owner")
-    .map_err(|_| Error::from("owner pubkey not found"))?;
-
-    let update_result = self.users.update_one(
-      doc! { "pubkey": note_owner }, 
-      doc! { "$push": { "notes": new_id } },
+    self.users.update_one(
+      doc! { "pubkey": note.owner.clone() }, 
+      doc! { "$push": { "notes": note._id.clone() } },
       None,
-    ).await;
+    ).await?;
 
-    if let Err(err) = update_result {
-      eprintln!("Error updating user document: {:?}", err); 
-      return Err(Error::from("Failed to update user document with note"));
-    }
-
-    Ok(self.doc_to_note(note_doc))
+    Ok(NoteResponse { status: "success", note })
   }
 
   pub async fn get_user_notes(&self, user_pub_key: &str) -> Result<Vec<NoteSchema>, Error> {
@@ -560,42 +468,13 @@ impl IOUServiceDB {
   }
 
   pub async fn store_note_history(&self, body: NoteHistory) -> Result<NoteHistoryResponse, Error> {
-    let doc = self.create_note_history_document(body);
+    let document = self.create_note_history_document(body);
 
-    let insert_result = match self.note_history.insert_one(doc, None).await {
-      Ok(result) => {
-        println!("{:?}", result);
-        result
-      },
-      Err(e) => {
-        println!("{:?}", e);
-          if e.to_string()
-            .contains("E11000 duplicate key error collection")
-          {
-            return Err(Error::from(e));
-          }
-          return Err(Error::from(e));
-      }
-    };
-    println!("{:#?}", insert_result);
-    let new_id = insert_result
-      .inserted_id
-      .as_object_id()
-      .expect("issue with new _id");
+    let note_history = self.insert_and_fetch(&self.note_history, document, |doc| self.doc_to_note_history(doc).note_history).await?;
 
-    let note_history_doc = match self
-      .note_history
-      .find_one(doc! {"_id": new_id}, None)
-      .await
-    {
-      Ok(Some(doc)) => doc,
-      Ok(None) => return Err(Error::from("Note History not found after insertion")),
-      Err(e) => return Err(Error::from(e))
-    };
- 
     Ok(NoteHistoryResponse {
       status: "success",
-      note_history: self.doc_to_note_history(note_history_doc).note_history
+      note_history
     })
   }
 

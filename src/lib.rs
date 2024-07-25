@@ -16,7 +16,6 @@ use routes::users::{
   get_user_with_username,
   create_user,
   create_and_send_challenge, 
-  //verify_challenge
 };
 
 pub async fn run() {
@@ -25,26 +24,20 @@ pub async fn run() {
   // user routes
   .route("/get_user", get(get_user_with_username))
   .route("/create_user", post(create_user))
-
   // verifier routes
   .route("/verify_nullifier", get(verify_nullifier))
-
-  .nest(
-    "/protected",
-    Router::new()
-    .route("/auth", post(create_and_send_challenge))
-    // .route("/get_session", post(verify_challenge))
-      // note routes
-    .route("/save_note", post(save_note))
-    .route("/get_notes", get(get_notes))
-    // message routes
-    .route("/send_message", post(send_message))
-    .route("/read_messages", get(read_user_messages))
-    // store
-    .route("/store_nullifier", post(store_nullifier))
-    // create and transfer notes history
-    .route("/create_and_transfer_note_history", post(create_and_transfer_note_history))
-  )
+  .route("/auth", post(create_and_send_challenge))
+  // .route("/get_session", post(verify_challenge))
+    // note routes
+  .route("/store_note", post(save_note))
+  .route("/get_notes", get(get_notes))
+  // message routes
+  .route("/send_message", post(send_message))
+  .route("/read_messages", get(read_user_messages))
+  // store
+  .route("/store_nullifier", post(store_nullifier))
+  // create and transfer notes history
+  .route("/create_and_transfer_note_history", post(create_and_transfer_note_history))
   // fallback, state, and db
   .fallback(handler_404)
   .layer(Extension(mongo));

@@ -81,3 +81,34 @@ graph TD
     I --> K
     J --> K
 ```
+
+### HTTP Post requests:
+
+
+**Create users:**
+
+username must be unique
+
+```ts
+curl -X POST -H "Content-Type: application/json" -d '{"username": "onur", "pubkey": "1234", "nonce": "0", "messages": [], "notes": [], "has_double_spent": false}' http://localhost:3000/create_user
+```
+
+**Send messages:**
+
+```ts
+curl -X POST -H "Content-Type: application/json" -d '{"recipient": "sero", "sender": "test", "message": "almost done, world", "attachment_id": "1"}' http://localhost:3000/send_message
+```
+
+**Store Nullifier & State:**
+
+Nullifier and state must be unique.
+
+```ts
+curl -X POST -H "Content-Type: application/json" -d '{"nullifier": "nul-1", "note": "1", "step": 2, "owner": "onur", "state": "1"}' http://localhost:3000/store_nullifier
+```
+
+**Store Notes:**
+
+```ts
+curl -X POST -H "Content-Type: application/json" -d '{"owner": "123", "asset_hash": "1", "value": 1, "step": 1, "parent_note": "hashed note", "out_index": "1", "blind": "random"}' http://localhost:3000/store_note
+```
