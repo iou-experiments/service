@@ -48,8 +48,8 @@ pub struct IOUServiceDB {
 
 impl IOUServiceDB {
   pub async fn init() -> Self {
-    let uri = env::var("MONGODB_URI").expect("You must set the MONGODB_URI environment var!");
-    let mut client_options = ClientOptions::parse(uri).await.unwrap();
+    let uri = env::var("MONGODB_URI").map_err(|_| MyError::InternalServerError("MONGODB_URI not set".to_string()));
+    let mut client_options = ClientOptions::parse(uri.expect("uri is set")).await.unwrap();
     let server_api = ServerApi::builder().version(ServerApiVersion::V1).build();
     client_options.server_api = Some(server_api);
     let client = Client::with_options(client_options).unwrap();
