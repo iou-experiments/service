@@ -116,8 +116,8 @@ pub struct NoteHistoryRequest {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChallengeSchema {
-  pub challenge_id: String, // A unique identifier for the challenge
-  pub user_id: String,      // Link the challenge to a user (you could use ObjectId here too)
+  pub challenge_id: String,
+  pub user_id: String,
   pub created_at: i64,
   pub expires_at: i64,
 }

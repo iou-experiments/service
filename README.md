@@ -64,3 +64,20 @@ H --> A
 I --> A
 ```
 
+**3. Transfer Note History between users:**
+
+```mermaid
+graph TD
+    A[Start] --> B[Store Note]
+    B --> C{Note Stored?}
+    C -->|Yes| D[Create Message]
+    C -->|No| E[Error Handling]
+    D --> F[Send Message]
+    F --> G{Message Sent?}
+    G -->|Yes| H[Return MessageSingleResponse]
+    G -->|No| I[Panic: 'msg sent']
+    E --> J[Return Error]
+    H --> K[End]
+    I --> K
+    J --> K
+```

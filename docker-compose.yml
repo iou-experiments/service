@@ -2,7 +2,7 @@ version: "3.9"
 services:
   rust-server:
     build: 
-      context: ./server # Use the current directory as the build context
+      context: . # Use the current directory as the build context
       dockerfile: Dockerfile # Assuming your Dockerfile is named "Dockerfile"
     ports:
       - "3000:3000" # Map port 3000 on the host to the container
