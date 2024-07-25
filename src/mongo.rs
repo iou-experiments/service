@@ -458,15 +458,15 @@ impl IOUServiceDB {
     let document = self.create_note_document(body);
 
     let insert_result = match self.notes.insert_one(document, None).await {
-        Ok(result) => result,
-        Err(e) => {
-            if e.to_string()
-                .contains("E11000 duplicate key error collection")
-            {
-                return Err(Error::from(e));
-            }
+      Ok(result) => result,
+      Err(e) => {
+        if e.to_string()
+            .contains("E11000 duplicate key error collection")
+        {
             return Err(Error::from(e));
         }
+        return Err(Error::from(e));
+      }
     };
   
     let new_id = insert_result
@@ -520,12 +520,24 @@ impl IOUServiceDB {
   }
 
   // Notes History
-  fn doc_to_note_history(&self, doc: Document, note: SaveNoteRequestSchema) -> NoteHistoryResponse {
+  fn doc_to_note_history(&self, doc: Document) -> NoteHistoryResponse {
+    let current_note = doc.get_document("current_note")
+      .map(|note_doc| self.doc_to_note(note_doc.clone()).note)
+      .expect("Failed to get current_note");
+
     let note_history = NoteHistory {
-      current_note: note,
+      current_note: SaveNoteRequestSchema{
+        asset_hash: current_note.asset_hash,
+        owner: current_note.owner,
+        value: current_note.value,
+        step: current_note.step,
+        parent_note: current_note.parent_note,
+        out_index: current_note.out_index,
+        blind: current_note.blind,
+      },
       asset: doc.get_str("asset").ok().map(|s| s.to_owned()).unwrap(),
       steps: doc.get_array("steps").ok().map(|arr| {
-        arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()
+          arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()
       }).unwrap_or_else(Vec::new),
       sibling: doc.get_str("sibling").ok().map(|s| s.to_owned()).unwrap_or_else(String::new),
     };
@@ -547,6 +559,46 @@ impl IOUServiceDB {
     note_history
   }
 
+  pub async fn store_note_history(&self, body: NoteHistory) -> Result<NoteHistoryResponse, Error> {
+    let doc = self.create_note_history_document(body);
+
+    let insert_result = match self.note_history.insert_one(doc, None).await {
+      Ok(result) => {
+        println!("{:?}", result);
+        result
+      },
+      Err(e) => {
+        println!("{:?}", e);
+          if e.to_string()
+            .contains("E11000 duplicate key error collection")
+          {
+            return Err(Error::from(e));
+          }
+          return Err(Error::from(e));
+      }
+    };
+    println!("{:#?}", insert_result);
+    let new_id = insert_result
+      .inserted_id
+      .as_object_id()
+      .expect("issue with new _id");
+
+    let note_history_doc = match self
+      .note_history
+      .find_one(doc! {"_id": new_id}, None)
+      .await
+    {
+      Ok(Some(doc)) => doc,
+      Ok(None) => return Err(Error::from("Note History not found after insertion")),
+      Err(e) => return Err(Error::from(e))
+    };
+ 
+    Ok(NoteHistoryResponse {
+      status: "success",
+      note_history: self.doc_to_note_history(note_history_doc).note_history
+    })
+  }
+
   pub async fn create_and_transfer_note_history(
     &self,
     current_owner_username: &str,
@@ -554,8 +606,7 @@ impl IOUServiceDB {
     body: NoteHistory,
     message: String,
   ) -> MessageSingleResponse {
-    let stored_note = self.store_note(&body.current_note.clone()).await;
-
+    let stored_note = self.store_note(&body.current_note).await;
     let message = MessageRequestSchema {
       recipient: recipient_username.to_owned(),
       sender: current_owner_username.to_owned(),
