@@ -1,4 +1,4 @@
-use mongodb::bson::Bson;
+use mongodb::bson::{Bson, doc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -15,12 +15,12 @@ pub struct User {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CreateUserSchema {
-    pub username: String,
-    pub pubkey: String,
-    pub nonce: String,
-    pub messages: Vec<String>,
-    pub notes: Vec<String>,
-    pub has_double_spent: bool,
+  pub username: String,
+  pub pubkey: String,
+  pub nonce: String,
+  pub messages: Vec<String>,
+  pub notes: Vec<String>,
+  pub has_double_spent: bool,
 }
 #[derive(Serialize, Deserialize, Debug)]
 pub struct UsernameRequest {
