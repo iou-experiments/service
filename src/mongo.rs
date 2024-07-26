@@ -1,8 +1,7 @@
 use ark_crypto_primitives::Error;
 use bson::{doc, Document};
-use mongodb::{ Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion }, Client, Collection};
-use std::sync::{Arc, RwLock};
-use std::collections::HashMap;
+use mongodb::{ Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion, IndexOptions }, Client, Collection, IndexModel};
+use std::{sync::{Arc, RwLock}, collections::HashMap, env};
 use crate::routes::{
   error::MyError,
   response::{
@@ -14,20 +13,16 @@ use crate::routes::{
     UserSingleResponse
   },
   schema::{
-    ChallengeSchema, CreateUserSchema, MessageRequestSchema, NoteHistory, SaveNoteRequestSchema, User
+    ChallengeSchema, CreateUserSchema, MessageRequestSchema, NoteHistory, SaveNoteRequestSchema,
+    User, NoteSchema, MessageSchema, NoteNullifierSchema
   }
 };
 
-use mongodb::options::IndexOptions;
-use mongodb::IndexModel;
-use std::env;
-use crate::routes::schema::{NoteSchema, MessageSchema, NoteNullifierSchema};
 use chrono::Utc;
 use futures::stream::TryStreamExt;
 use hex;
-use rand::Rng;
+use rand::{Rng, distributions::Alphanumeric};
 use ed25519_dalek::{PublicKey, Signature};
-use rand::distributions::Alphanumeric;
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
@@ -484,7 +479,7 @@ impl IOUServiceDB {
     sent.await.expect("msg sent")
   }
 
-  //auth & challenges
+  //auth & challenges:  NOT IN USE DURING MVP
   pub async fn authenticate_user(
     &self,
     username: &str,

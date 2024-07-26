@@ -46,7 +46,7 @@ D --> A
 E --> A
 ```
 
-**2. Challenge-Response Authentication:**
+**2. Challenge-Response Authentication (currently not in use):**
 
 ```mermaid
 graph LR
