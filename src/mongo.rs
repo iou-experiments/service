@@ -304,9 +304,9 @@ impl IOUServiceDB {
 
   pub async fn get_nullifier(&self, nullifier: &str, expected_state: &str) -> NullifierResponse { 
     let nullifier_doc = self
-        .nullifiers
-        .find_one(doc! {"nullifier": nullifier}, None)
-        .await;
+      .nullifiers
+      .find_one(doc! {"nullifier": nullifier}, None)
+      .await;
 
     match nullifier_doc {
       Ok(Some(doc)) => {
@@ -331,17 +331,18 @@ impl IOUServiceDB {
             println!("WARNING: USER IS ATTEMPTING TO DOUBLE SPEND, we have flagged their account.");
             return NullifierResponse::Ok(self.doc_to_nullifier(doc).nullifier);
           } else {
+            println!("Nullifier and state combination is unique");
             return NullifierResponse::Error; 
           }
         } else {
-            eprintln!("State field not found in nullifier document.");
-            return NullifierResponse::Error; 
+          eprintln!("State field not found in nullifier document.");
+          return NullifierResponse::Error; 
         }
       }
       Ok(None) => NullifierResponse::NotFound, 
       Err(err) => {
-          eprintln!("Error getting nullifier: {:?}", err);
-          NullifierResponse::Error
+        eprintln!("Error getting nullifier: {:?}", err);
+        NullifierResponse::Error
       }
     }
   } 
