@@ -115,6 +115,21 @@ impl IOUServiceDB {
     Ok(transform(fetched_doc))
   }
 
+  async fn create_unique_index(&self, collection: &Collection<Document>, field: &str) -> Result<String, Error> {
+    let options = IndexOptions::builder().unique(true).build();
+    let index = IndexModel::builder()
+      .keys(doc! {field: 1})
+      .options(options)
+      .build();
+
+    collection.create_index(index, None).await?;
+    Ok("Success".to_owned())
+  }
+
+  fn get_current_timestamp(&self) -> i64 {
+    Utc::now().timestamp()
+  }
+
   // User
   fn create_user_document(&self, body: &CreateUserSchema) -> Document {
     let user = doc! {
@@ -132,14 +147,14 @@ impl IOUServiceDB {
   fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
     let user = User {
       id: doc.get_str("_id").ok().map(|s| s.to_owned()),
-        has_double_spent: doc.get_bool("has_double_spent").ok(),
-        nonce: doc.get_str("nonce").ok().map(|s| s.to_owned()),
-        username: doc.get_str("username").ok().map(|s| s.to_owned()),
-        pubkey: doc.get_str("pubkey").ok().map(|s| s.to_owned()),
-        messages: doc.get_array("messages").ok().map(|arr| 
-            arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
-        notes: doc.get_array("notes").ok().map(|arr| 
-            arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
+      has_double_spent: doc.get_bool("has_double_spent").ok(),
+      nonce: doc.get_str("nonce").ok().map(|s| s.to_owned()),
+      username: doc.get_str("username").ok().map(|s| s.to_owned()),
+      pubkey: doc.get_str("pubkey").ok().map(|s| s.to_owned()),
+      messages: doc.get_array("messages").ok().map(|arr| 
+        arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
+      notes: doc.get_array("notes").ok().map(|arr| 
+        arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
     };
 
     UserSingleResponse {
@@ -159,15 +174,7 @@ impl IOUServiceDB {
 
   pub async fn create_user(&self, body: &CreateUserSchema) -> Result<UserSingleResponse, Error> {
     let document = self.create_user_document(body);
-
-    let options = IndexOptions::builder().unique(true).build();
-    let index = IndexModel::builder()
-      .keys(doc! {"username": 1})
-      .options(options)
-      .build();
-
-    self.users.create_index(index, None).await?;
-
+    let _ = self.create_unique_index(&self.users, "username").await;
     let user = self.insert_and_fetch(&self.users, document, |doc| self.doc_to_user(doc).user).await?;
 
     Ok(UserSingleResponse {
@@ -207,24 +214,20 @@ impl IOUServiceDB {
     message
   }
   
-  fn get_current_timestamp(&self) -> i64 {
-    Utc::now().timestamp()
-  }
-
   pub async fn send_message(&self, body: &MessageRequestSchema) -> Result<MessageSingleResponse, Error> {
     let document = self.create_message_document(body);
 
     let message = self.insert_and_fetch(&self.messages, document, |doc| self.doc_to_message(doc).message).await?;
 
     self.users.update_one(
-        doc! { "username": message.recipient.clone() }, 
-        doc! { "$push": { "messages": message._id.clone() } },
-        None,
+      doc! { "username": message.recipient.clone() }, 
+      doc! { "$push": { "messages": message._id.clone() } },
+      None,
     ).await?;
 
     Ok(MessageSingleResponse {
-        status: "success",
-        message
+      status: "success",
+      message
     })
   }
 
@@ -234,40 +237,34 @@ impl IOUServiceDB {
       "read": false
     };
 
-    let sort = doc! { "timestamp": 1 }; // 1 for ascending (oldest to newest)
+    let sort = doc! { "timestamp": 1 };
+    let find_options = FindOptions::builder().sort(sort).build();
 
-    let find_options = FindOptions::builder()
-      .sort(sort)
-      .build();
+    let messages: Vec<MessageSchema> = self.messages
+      .find(filter, Some(find_options))
+      .await?
+      .try_filter_map(|doc| async move {
+        let msg = self.doc_to_message(doc);
+        let update_result = self.messages
+            .update_one(
+              doc! { "_id": msg.message._id.clone() },
+              doc! { "$set": { "read": true } },
+              None,
+            )
+            .await;
 
-    let mut cursor: Cursor<Document> = self.messages
-        .find(filter, Some(find_options))
-        .await
-        .map_err(MyError::MongoError)?;
- 
-    let mut messages = Vec::new(); 
+        match update_result {
+          Ok(_) => Ok(Some(msg.message)),
+          Err(err) => {
+            eprintln!("Error marking message as read: {:?}", err);
+            Ok(None)
+          }
+        }
+      })
+      .try_collect()
+      .await?;
 
-    while let Some(doc) = cursor.try_next().await? {
-     
-      let msg = self.doc_to_message(doc);
-
-      let update_result = self.messages
-        .update_one(
-          doc! { "_id": msg.message._id.clone() }, 
-          doc! { "$set": { "read": true } },
-          None,
-        )
-        .await;
-
-      if let Err(err) = update_result {
-        eprintln!("Error marking message as read: {:?}", err);
-        // Handle the error appropriately
-      } else {
-        messages.push(msg.message);
-      }
-    }
-
-    Ok(messages)   
+    Ok(messages)
   }
 
   // Nullifiers 
@@ -301,14 +298,7 @@ impl IOUServiceDB {
   pub async fn store_nullifier(&self, body: &NoteNullifierSchema) -> Result<NullifierResponseData, Error> {
     let document = self.create_note_nullifier_document(body);
 
-    let options = IndexOptions::builder().unique(true).build();
-    let index = IndexModel::builder()
-      .keys(doc! {"state": 2})
-      .options(options)
-      .build();
-
-    self.nullifiers.create_index(index, None).await?;
-
+    let _ = self.create_unique_index(&self.nullifiers, "state").await;
     let nullifier = self.insert_and_fetch(&self.nullifiers, document, |doc| self.doc_to_nullifier(doc).nullifier).await?;
 
     Ok(NullifierResponseData {
@@ -325,15 +315,12 @@ impl IOUServiceDB {
 
     match nullifier_doc {
       Ok(Some(doc)) => {
-        // 1. Check if the state matches the expected_state
         if let Some(state) = doc.get_str("state").ok() { 
           if state == expected_state {
-            // 2.  State matches, proceed with your logic 
-            //     (e.g., mark user as double-spending)
             if let Ok(owner) = doc.get_str("owner") {
               let update_result = self.users
                 .update_one(
-                    doc! {"username": owner}, // Assuming username is used for identification
+                    doc! {"username": owner},
                     doc! {"$set": {"has_double_spent": true}},
                     None,
                 )
@@ -341,26 +328,25 @@ impl IOUServiceDB {
 
               if let Err(err) = update_result {
                 eprintln!("Error updating user: {:?}", err);
-                // Handle the error appropriately 
               }
             } else {
               eprintln!("Owner not found in nullifier document.");
             }
-              println!("WARNING: USER IS ATTEMPTING TO DOUBLE SPEND, we have flagged their account.");
-              return NullifierResponse::Ok(self.doc_to_nullifier(doc).nullifier);
+
+            println!("WARNING: USER IS ATTEMPTING TO DOUBLE SPEND, we have flagged their account.");
+            return NullifierResponse::Ok(self.doc_to_nullifier(doc).nullifier);
           } else {
-              // State does not match, return a different response (or error)
-              return NullifierResponse::Error; // Or a more specific error type
+            return NullifierResponse::Error; 
           }
         } else {
             eprintln!("State field not found in nullifier document.");
-            return NullifierResponse::Error; // Or a specific error type
+            return NullifierResponse::Error; 
         }
       }
-      Ok(None) => NullifierResponse::NotFound, // Nullifier not found 
+      Ok(None) => NullifierResponse::NotFound, 
       Err(err) => {
           eprintln!("Error getting nullifier: {:?}", err);
-          NullifierResponse::Error // Or handle the error more gracefully
+          NullifierResponse::Error
       }
     }
   } 
@@ -413,9 +399,9 @@ impl IOUServiceDB {
     let filter = doc! { "owner": user_pub_key };
 
     let mut cursor: Cursor<Document> = self.notes
-        .find(filter, None)
-        .await
-        .map_err(MyError::MongoError)?;
+      .find(filter, None)
+      .await
+      .map_err(MyError::MongoError)?;
  
     let mut notes = Vec::new(); 
 
