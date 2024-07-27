@@ -3,7 +3,7 @@ use bson::{doc, Document};
 use mongodb::{ Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion, IndexOptions }, Client, Collection, IndexModel};
 use std::{sync::{Arc, RwLock}, collections::HashMap, env};
 use crate::routes::{
-  error::MyError,
+  error::{ConvertToDocError, InsertDocumentError, MyError},
   response::{
     MessageSingleResponse,
     NoteHistoryResponse,
@@ -13,8 +13,7 @@ use crate::routes::{
     UserSingleResponse
   },
   schema::{
-    ChallengeSchema, CreateUserSchema, MessageRequestSchema, NoteHistory, SaveNoteRequestSchema,
-    User, NoteSchema, MessageSchema, NoteNullifierSchema
+    ChallengeSchema, CreateUserSchema, MessageRequestSchema, MessageSchema, NoteHistory, NoteNullifierSchema, NoteSchema, SaveNoteRequestSchema, User
   }
 };
 
@@ -23,6 +22,7 @@ use futures::stream::TryStreamExt;
 use hex;
 use rand::{Rng, distributions::Alphanumeric};
 use ed25519_dalek::{PublicKey, Signature};
+use error_stack::{IntoReportCompat, Report, Result, ResultExt};
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
@@ -94,13 +94,16 @@ impl IOUServiceDB {
     collection: &Collection<Document>,
     document: Document,
     transform: impl Fn(Document) -> T,
-  ) -> Result<T, Error> {
-    let insert_result = collection.insert_one(document, None).await?;
-    
+  ) -> Result<T, Report<InsertDocumentError>> {
+    let insert_result = collection
+    .insert_one(document, None)
+    .await
+    .attach_printable(format!("failed to insert document"))?;
+
     let new_id = insert_result
       .inserted_id
       .as_object_id()
-      .ok_or_else(|| Error::from("Failed to get inserted _id"))?;
+      .ok_or_else(|| Report::new(InsertDocumentError))?;
 
     let fetched_doc = collection
       .find_one(doc! {"_id": new_id}, None)
@@ -126,7 +129,7 @@ impl IOUServiceDB {
   }
 
   // User
-  fn create_user_document(&self, body: &CreateUserSchema) -> Document {
+  fn create_user_document(&self, body: &CreateUserSchema) -> Result<Document, ConvertToDocError> {
     let user = doc! {
       "username": body.username.clone(),
       "pubkey": body.pubkey.clone(),
@@ -136,7 +139,7 @@ impl IOUServiceDB {
       "has_double_spent": body.has_double_spent
     };
     
-    user
+    Ok(user)
   }
 
   fn doc_to_user(&self, doc: Document) -> UserSingleResponse {
@@ -167,8 +170,8 @@ impl IOUServiceDB {
     self.doc_to_user(user.unwrap().unwrap())
   }
 
-  pub async fn create_user(&self, body: &CreateUserSchema) -> Result<UserSingleResponse, Error> {
-    let document = self.create_user_document(body);
+  pub async fn create_user(&self, body: &CreateUserSchema) -> Result<UserSingleResponse, ConvertToDocError> {
+    let document = self.create_user_document(body).change_context(ConvertToDocError)?;
     let _ = self.create_unique_index(&self.users, "username").await;
     let user = self.insert_and_fetch(&self.users, document, |doc| self.doc_to_user(doc).user).await?;
 
