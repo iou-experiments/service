@@ -1,7 +1,6 @@
 use axum::{extract::Extension, http::StatusCode, Json, response::IntoResponse};
 use crate::mongo::IOUServiceDB;
-use crate::routes::schema::User;
-use super::{response::UserSingleResponse, schema::{AuthData, CreateUserSchema, UsernameRequest}};
+use super::{response::UserSingleResponse, schema::{AuthData, CreateUserSchema, UsernameRequest}, error::{DatabaseError, ErrorResponse}};
 use mongodb::bson::doc;
 use uuid::Uuid;
 
@@ -9,10 +8,34 @@ use uuid::Uuid;
 pub async fn get_user_with_username(
     Extension(db): Extension<IOUServiceDB>,
     Json(payload): Json<UsernameRequest>
-) -> Result<Json<User>, String> {
+) -> impl IntoResponse {
+  match db.get_user(&payload.username).await {
+    Ok(user_response) => {
+      (StatusCode::OK, Json(user_response.user)).into_response()
+    },
+    Err(err) => {
+      let (status, error_message) = match err.current_context() {
+        DatabaseError::NotFoundError => (
+          StatusCode::NOT_FOUND,
+          format!("User not found: {}", err)
+        ),
+        DatabaseError::FetchError => (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to fetch user: {}", err)
+        ),
+        DatabaseError::ConversionError => (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("Failed to process user data: {}", err)
+        ),
+        _ => (
+          StatusCode::INTERNAL_SERVER_ERROR,
+          format!("An unexpected error occurred: {}", err)
+        ),
+      };
 
-    let user_response = db.get_user(&payload.username).await;
-    Ok(Json(user_response.user))
+      (status, Json(ErrorResponse { error: error_message })).into_response()
+    }
+  }
 }
 
 #[axum::debug_handler]
@@ -25,7 +48,6 @@ pub async fn create_user(Extension(db): Extension<IOUServiceDB>, Json(payload): 
     notes: payload.notes,
     has_double_spent: payload.has_double_spent,
   };
-  println!("{:#?}", new_user);
   match db.create_user(&new_user).await {
     Ok(user_response) => {
       println!("{:#?}", user_response);

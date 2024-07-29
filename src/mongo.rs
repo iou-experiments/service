@@ -1,9 +1,9 @@
 use ark_crypto_primitives::Error;
 use bson::{doc, Document};
-use mongodb::{ Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion, IndexOptions }, Client, Collection, IndexModel};
+use mongodb::{Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion, IndexOptions }, Client, Collection, IndexModel};
 use std::{sync::{Arc, RwLock}, collections::HashMap, env};
 use crate::routes::{
-  error::{ConvertToDocError, InsertDocumentError, MyError},
+  error::{ConvertToDocError, InsertDocumentError, CreateUserError, MyError, DatabaseError},
   response::{
     MessageSingleResponse,
     NoteHistoryResponse,
@@ -22,7 +22,7 @@ use futures::stream::TryStreamExt;
 use hex;
 use rand::{Rng, distributions::Alphanumeric};
 use ed25519_dalek::{PublicKey, Signature};
-use error_stack::{IntoReportCompat, Report, Result, ResultExt};
+use error_stack::{Report, Result};
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
@@ -94,23 +94,26 @@ impl IOUServiceDB {
     collection: &Collection<Document>,
     document: Document,
     transform: impl Fn(Document) -> T,
-  ) -> Result<T, Report<InsertDocumentError>> {
-    let insert_result = collection
-    .insert_one(document, None)
-    .await
-    .attach_printable(format!("failed to insert document"))?;
-
-    let new_id = insert_result
-      .inserted_id
-      .as_object_id()
-      .ok_or_else(|| Report::new(InsertDocumentError))?;
-
-    let fetched_doc = collection
-      .find_one(doc! {"_id": new_id}, None)
-      .await?
-      .ok_or_else(|| Error::from("Document not found after insertion"))?;
-
-    Ok(transform(fetched_doc))
+  ) -> Result<T, InsertDocumentError> {
+    match collection.insert_one(document, None).await {
+      Ok(insert_result) => {
+        match insert_result.inserted_id.as_object_id() {
+          Some(new_id) => {
+            match collection.find_one(doc! {"_id": new_id}, None).await {
+              Ok(Some(fetched_doc)) => Ok(transform(fetched_doc)),
+              Ok(None) => Err(Report::new(InsertDocumentError)
+                .attach_printable("Document not found after insertion")),
+              Err(e) => Err(Report::new(InsertDocumentError)
+                .attach_printable(format!("Failed to fetch inserted document: {}", e))),
+            }
+          },
+          None => Err(Report::new(InsertDocumentError)
+            .attach_printable("Failed to get inserted _id")),
+        }
+      },
+      Err(e) => Err(Report::new(InsertDocumentError)
+        .attach_printable(format!("Failed to insert document: {}", e))),
+    }
   }
 
   async fn create_unique_index(&self, collection: &Collection<Document>, field: &str) -> Result<String, Error> {
@@ -120,7 +123,7 @@ impl IOUServiceDB {
       .options(options)
       .build();
 
-    collection.create_index(index, None).await?;
+    let _ = collection.create_index(index, None).await;
     Ok("Success".to_owned())
   }
 
@@ -161,23 +164,50 @@ impl IOUServiceDB {
     }
   }
 
-  pub async fn get_user(&self, username: &str) -> UserSingleResponse {
-    let user = self
-    .users
-    .find_one(doc! {"username": username}, None)
-    .await;
+  pub async fn get_user(&self, username: &str) -> Result<UserSingleResponse, DatabaseError> {
+    // Find the user document
+    let user_doc = match self.users.find_one(doc! {"username": username}, None).await {
+      Ok(Some(doc)) => doc,
+      Ok(None) => return Err(Report::new(DatabaseError::NotFoundError)
+        .attach_printable(format!("User '{}' not found", username))),
+      Err(e) => return Err(Report::new(DatabaseError::FetchError)
+        .attach_printable(format!("Failed to fetch user '{}': {}", username, e))),
+    };
 
-    self.doc_to_user(user.unwrap().unwrap())
-  }
-
-  pub async fn create_user(&self, body: &CreateUserSchema) -> Result<UserSingleResponse, ConvertToDocError> {
-    let document = self.create_user_document(body).change_context(ConvertToDocError)?;
-    let _ = self.create_unique_index(&self.users, "username").await;
-    let user = self.insert_and_fetch(&self.users, document, |doc| self.doc_to_user(doc).user).await?;
+    let user = self.doc_to_user(user_doc);
 
     Ok(UserSingleResponse {
       status: "success",
-      user
+      user: user.user
+    })
+  }
+
+  pub async fn create_user(&self, body: &CreateUserSchema) -> Result<UserSingleResponse, CreateUserError> {
+      // Step 1: Create user document
+    let document = match self.create_user_document(body) {
+      Ok(doc) => doc,
+      Err(e) => return Err(Report::new(CreateUserError)
+        .attach_printable(format!("Failed to create user document: {}", e))),
+    };
+
+    // Step 2: Create unique index
+    match self.create_unique_index(&self.users, "username").await {
+      Ok(_) => {},
+      Err(e) => return Err(Report::new(CreateUserError)
+        .attach_printable(format!("Failed to create unique index: {}", e))),
+    }
+
+    // Step 3: Insert and fetch user
+    let user = match self.insert_and_fetch(&self.users, document, |doc| self.doc_to_user(doc).user).await {
+      Ok(user) => user,
+      Err(e) => return Err(Report::new(CreateUserError)
+        .attach_printable(format!("Failed to insert and fetch user: {}", e))),
+    };
+
+    // Step 4: Return successful response
+    Ok(UserSingleResponse {
+      status: "success",
+      user,
     })
   }
 
@@ -212,16 +242,24 @@ impl IOUServiceDB {
     message
   }
   
-  pub async fn send_message(&self, body: &MessageRequestSchema) -> Result<MessageSingleResponse, Error> {
+  pub async fn send_message(&self, body: &MessageRequestSchema) -> Result<MessageSingleResponse, DatabaseError> {
     let document = self.create_message_document(body);
 
-    let message = self.insert_and_fetch(&self.messages, document, |doc| self.doc_to_message(doc).message).await?;
+    let message = match self.insert_and_fetch(&self.messages, document, |doc| self.doc_to_message(doc).message).await {
+      Ok(msg) => msg,
+      Err(e) => return Err(Report::new(DatabaseError::InsertError)
+        .attach_printable(format!("Failed to insert and fetch message: {}", e))),
+    };
 
-    self.users.update_one(
-      doc! { "username": message.recipient.clone() }, 
+    match self.users.update_one(
+      doc! { "username": message.recipient.clone() },
       doc! { "$push": { "messages": message._id.clone() } },
       None,
-    ).await?;
+    ).await {
+      Ok(_) => {},
+      Err(e) => return Err(Report::new(DatabaseError::UpdateError)
+        .attach_printable(format!("Failed to update user's messages: {}", e))),
+    }
 
     Ok(MessageSingleResponse {
       status: "success",
@@ -229,29 +267,31 @@ impl IOUServiceDB {
     })
   }
 
-  pub async fn get_unread_messages(&self, username: &str) -> Result<Vec<MessageSchema>, Error> {
+  pub async fn get_unread_messages(&self, username: &str) -> Result<Vec<MessageSchema>, DatabaseError> {
     let filter = doc! {
       "recipient": username,
       "read": false
     };
-
     let sort = doc! { "timestamp": 1 };
     let find_options = FindOptions::builder().sort(sort).build();
 
-    let messages: Vec<MessageSchema> = self.messages
-      .find(filter, Some(find_options))
-      .await?
+    let cursor = match self.messages.find(filter, Some(find_options)).await {
+      Ok(cur) => cur,
+      Err(e) => return Err(Report::new(DatabaseError::FetchError)
+        .attach_printable(format!("Failed to fetch unread messages: {}", e))),
+    };
+
+    let messages: Vec<MessageSchema> = match cursor
       .try_filter_map(|doc| async move {
         let msg = self.doc_to_message(doc);
-        let update_result = self.messages
-            .update_one(
-              doc! { "_id": msg.message._id.clone() },
-              doc! { "$set": { "read": true } },
-              None,
-            )
-            .await;
-
-        match update_result {
+        match self.messages
+          .update_one(
+            doc! { "_id": msg.message._id.clone() },
+            doc! { "$set": { "read": true } },
+            None,
+          )
+          .await
+        {
           Ok(_) => Ok(Some(msg.message)),
           Err(err) => {
             eprintln!("Error marking message as read: {:?}", err);
@@ -260,7 +300,12 @@ impl IOUServiceDB {
         }
       })
       .try_collect()
-      .await?;
+      .await
+    {
+      Ok(msgs) => msgs,
+      Err(e) => return Err(Report::new(DatabaseError::UpdateError)
+        .attach_printable(format!("Failed to update message read status: {}", e))),
+    };
 
     Ok(messages)
   }
@@ -293,11 +338,20 @@ impl IOUServiceDB {
     nullifier
   }
 
-  pub async fn store_nullifier(&self, body: &NoteNullifierSchema) -> Result<NullifierResponseData, Error> {
+  pub async fn store_nullifier(&self, body: &NoteNullifierSchema) -> Result<NullifierResponseData, DatabaseError> {
     let document = self.create_note_nullifier_document(body);
 
-    let _ = self.create_unique_index(&self.nullifiers, "state").await;
-    let nullifier = self.insert_and_fetch(&self.nullifiers, document, |doc| self.doc_to_nullifier(doc).nullifier).await?;
+    match self.create_unique_index(&self.nullifiers, "state").await {
+      Ok(_) => {},
+      Err(e) => return Err(Report::new(DatabaseError::IndexCreationError)
+        .attach_printable(format!("Failed to create unique index: {}", e))),
+    }
+
+    let nullifier = match self.insert_and_fetch(&self.nullifiers, document, |doc| self.doc_to_nullifier(doc).nullifier).await {
+      Ok(null) => null,
+      Err(e) => return Err(Report::new(DatabaseError::InsertError)
+        .attach_printable(format!("Failed to insert and fetch nullifier: {}", e))),
+    };
 
     Ok(NullifierResponseData {
       status: "success",
@@ -318,9 +372,9 @@ impl IOUServiceDB {
             if let Ok(owner) = doc.get_str("owner") {
               let update_result = self.users
                 .update_one(
-                    doc! {"username": owner},
-                    doc! {"$set": {"has_double_spent": true}},
-                    None,
+                  doc! {"username": owner},
+                  doc! {"$set": {"has_double_spent": true}},
+                  None,
                 )
                 .await;
 
@@ -380,33 +434,49 @@ impl IOUServiceDB {
     note
   }
 
-  pub async fn store_note(&self, body: &SaveNoteRequestSchema) -> Result<NoteResponse, Error> {
+  pub async fn store_note(&self, body: &SaveNoteRequestSchema) -> Result<NoteResponse, DatabaseError> {
     let document = self.create_note_document(body);
 
-    let note = self.insert_and_fetch(&self.notes, document, |doc| self.doc_to_note(doc).note).await?;
+    let note = match self.insert_and_fetch(&self.notes, document, |doc| self.doc_to_note(doc).note).await {
+      Ok(n) => n,
+      Err(e) => return Err(Report::new(DatabaseError::InsertError)
+        .attach_printable(format!("Failed to insert and fetch note: {}", e))),
+    };
 
-    self.users.update_one(
-      doc! { "pubkey": note.owner.clone() }, 
+    match self.users.update_one(
+      doc! { "pubkey": note.owner.clone() },
       doc! { "$push": { "notes": note._id.clone() } },
       None,
-    ).await?;
+    ).await {
+      Ok(_) => {},
+      Err(e) => return Err(Report::new(DatabaseError::UpdateError)
+        .attach_printable(format!("Failed to update user's notes: {}", e))),
+    }
 
     Ok(NoteResponse { status: "success", note })
   }
 
-  pub async fn get_user_notes(&self, user_pub_key: &str) -> Result<Vec<NoteSchema>, Error> {
+  pub async fn get_user_notes(&self, user_pub_key: &str) -> Result<Vec<NoteSchema>, DatabaseError> {
     let filter = doc! { "owner": user_pub_key };
+    
+    let mut cursor: Cursor<Document> = match self.notes.find(filter, None).await {
+      Ok(cur) => cur,
+      Err(e) => return Err(Report::new(DatabaseError::FetchError)
+        .attach_printable(format!("Failed to fetch user notes: {}", e))),
+    };
 
-    let mut cursor: Cursor<Document> = self.notes
-      .find(filter, None)
-      .await
-      .map_err(MyError::MongoError)?;
- 
-    let mut notes = Vec::new(); 
-
-    while let Some(doc) = cursor.try_next().await? {
-      let note = self.doc_to_note(doc);
-      notes.push(note.note);
+    let mut notes = Vec::new();
+    
+    loop {
+      match cursor.try_next().await {
+        Ok(Some(doc)) => {
+          let note = self.doc_to_note(doc);
+          notes.push(note.note);
+        },
+        Ok(None) => break,
+        Err(e) => return Err(Report::new(DatabaseError::FetchError)
+          .attach_printable(format!("Failed to fetch next note: {}", e))),
+      }
     }
 
     Ok(notes)
@@ -452,10 +522,14 @@ impl IOUServiceDB {
     note_history
   }
 
-  pub async fn store_note_history(&self, body: NoteHistory) -> Result<NoteHistoryResponse, Error> {
+  pub async fn store_note_history(&self, body: NoteHistory) -> Result<NoteHistoryResponse, DatabaseError> {
     let document = self.create_note_history_document(body);
 
-    let note_history = self.insert_and_fetch(&self.note_history, document, |doc| self.doc_to_note_history(doc).note_history).await?;
+    let note_history = match self.insert_and_fetch(&self.note_history, document, |doc| self.doc_to_note_history(doc).note_history).await {
+      Ok(history) => history,
+      Err(e) => return Err(Report::new(DatabaseError::InsertError)
+        .attach_printable(format!("Failed to insert and fetch note history: {}", e))),
+    };
 
     Ok(NoteHistoryResponse {
       status: "success",
@@ -487,28 +561,55 @@ impl IOUServiceDB {
   pub async fn authenticate_user(
     &self,
     username: &str,
-    signature_hex: &str, 
+    signature_hex: &str,
     challenge_id: &str,
-  ) -> Result<bool, Error> {
+  ) -> Result<bool, DatabaseError> {
+    let challenge = match self.get_challenge(Some(challenge_id), username).await {
+      Ok(c) => c,
+      Err(e) => return Err(Report::new(DatabaseError::FetchError)
+        .attach_printable(format!("Failed to get challenge: {}", e))),
+    };
 
-    let challenge = self.get_challenge(Some(challenge_id), username).await; // Implement this
-    let user_doc = self.users.find_one(doc! {"username": username}, None).await?;
-    let public_key_bytes = hex::decode(
-        user_doc.unwrap().get_str("pubkey")?
-    ).map_err(|_| Error::from("owner pubkey not found"))?;
+    let user_doc = match self.users.find_one(doc! {"username": username}, None).await {
+      Ok(Some(doc)) => doc,
+      Ok(None) => return Err(Report::new(DatabaseError::AuthenticationError)
+          .attach_printable("User not found")),
+      Err(e) => return Err(Report::new(DatabaseError::FetchError)
+        .attach_printable(format!("Failed to fetch user: {}", e))),
+    };
 
-    let public_key: PublicKey = PublicKey::from_bytes(&public_key_bytes)?; 
+    let public_key_str = match user_doc.get_str("pubkey") {
+      Ok(key) => key,
+      Err(e) => return Err(Report::new(DatabaseError::ConversionError)
+        .attach_printable(format!("Failed to get pubkey: {}", e))),
+    };
 
-    let signature_bytes = hex::decode(signature_hex).map_err(|_| Error::from("no existing challenge"))?;
-    let signature: Signature = Signature::from_bytes(&signature_bytes)?;
+    let public_key_bytes = match hex::decode(public_key_str) {
+      Ok(bytes) => bytes,
+      Err(e) => return Err(Report::new(DatabaseError::ConversionError)
+        .attach_printable(format!("Failed to decode pubkey: {}", e))),
+    };
 
-    let is_valid = public_key.verify_strict(&challenge.unwrap(), &signature).is_ok();
+    let public_key = match PublicKey::from_bytes(&public_key_bytes) {
+      Ok(key) => key,
+      Err(e) => return Err(Report::new(DatabaseError::ConversionError)
+        .attach_printable(format!("Failed to create PublicKey: {}", e))),
+    };
 
-    if is_valid {
-      Ok(true)
-    } else {
-      Ok(false)
-    }
+    let signature_bytes = match hex::decode(signature_hex) {
+      Ok(bytes) => bytes,
+      Err(e) => return Err(Report::new(DatabaseError::ConversionError)
+        .attach_printable(format!("Failed to decode signature: {}", e))),
+    };
+
+    let signature = match Signature::from_bytes(&signature_bytes) {
+      Ok(sig) => sig,
+      Err(e) => return Err(Report::new(DatabaseError::ConversionError)
+        .attach_printable(format!("Failed to create Signature: {}", e))),
+    };
+
+    let is_valid = public_key.verify_strict(&challenge, &signature).is_ok();
+    Ok(is_valid)
   }
 
   pub fn insert_session(&self, session_id: String, username: String) {
@@ -516,42 +617,43 @@ impl IOUServiceDB {
   }
 
   pub async fn get_challenge(
-    &self, 
-    challenge_id: Option<&str>, // Make challenge_id optional
+    &self,
+    challenge_id: Option<&str>,
     username: &str,
-) -> Result<Vec<u8>, Error> { 
+  ) -> Result<Vec<u8>, DatabaseError> {
     if let Some(challenge_id) = challenge_id {
-      // 1. If challenge_id is provided, try to find it in the database
-      let existing_challenge = self.challenges.find_one(
+      match self.challenges.find_one(
         doc! {"challenge_id": challenge_id, "expires_at": { "$gt": Utc::now() }},
         None
-      ).await
-      .map_err(|_| Error::from("database error"))?;
-
-      if let Some(doc) = existing_challenge {
-        let challenge = self.document_to_challenge(doc); // Assuming you have this function
-        return Ok(challenge.challenge_id.as_bytes().to_vec());
-      } 
-    } 
+      ).await {
+        Ok(Some(doc)) => {
+          let challenge = self.document_to_challenge(doc);
+          return Ok(challenge.challenge_id.as_bytes().to_vec())
+        },
+        Ok(None) => {},
+        Err(e) => return Err(Report::new(DatabaseError::FetchError)
+         .attach_printable(format!("Failed to fetch challenge: {}", e))),
+      }
+    }
 
     let challenge_id: String = rand::thread_rng()
       .sample_iter(&Alphanumeric)
-      .take(32) 
+      .take(32)
       .map(char::from)
       .collect();
 
     let new_challenge = ChallengeSchema {
       challenge_id: challenge_id.clone(),
-      user_id: username.to_owned(), 
+      user_id: username.to_owned(),
       created_at: self.get_current_timestamp(),
-      expires_at: self.get_current_timestamp() + 300, 
+      expires_at: self.get_current_timestamp() + 300,
     };
 
-    self.challenges_collection.insert_one(new_challenge, None)
-      .await
-      .map_err(|_| Error::from("database error"))?;
-
-    Ok(challenge_id.as_bytes().to_vec())
+    match self.challenges_collection.insert_one(new_challenge, None).await {
+      Ok(_) => Ok(challenge_id.as_bytes().to_vec()),
+      Err(e) => Err(Report::new(DatabaseError::InsertError)
+        .attach_printable(format!("Failed to insert new challenge: {}", e))),
+    }
   }
 
   fn document_to_challenge(&self, doc: Document) -> ChallengeSchema {
