@@ -82,6 +82,30 @@ graph TD
     J --> K
 ```
 
+**4. Read messages:**
+
+```mermaid
+graph TD
+    A[Start] --> B[Create filter and sort options]
+    B --> C{Find messages}
+    C -->|Success| D[Get cursor]
+    C -->|Error| E[Return FetchError]
+    D --> F[Process cursor]
+    F --> G{For each document}
+    G -->|Process| H[Convert to message]
+    H --> I{Update message as read}
+    I -->|Success| J[Add to result list]
+    I -->|Error| K[Log error, skip message]
+    J --> G
+    K --> G
+    G -->|All processed| L{Collect results}
+    L -->|Success| M[Return messages]
+    L -->|Error| N[Return UpdateError]
+    E --> O[End]
+    M --> O
+    N --> O
+```
+
 ### HTTP Post requests:
 
 
