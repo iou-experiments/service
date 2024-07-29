@@ -16,7 +16,6 @@ use crate::routes::{
     ChallengeSchema, CreateUserSchema, MessageRequestSchema, MessageSchema, NoteHistory, NoteNullifierSchema, NoteSchema, SaveNoteRequestSchema, User
   }
 };
-
 use chrono::Utc;
 use futures::stream::TryStreamExt;
 use hex;
@@ -183,28 +182,24 @@ impl IOUServiceDB {
   }
 
   pub async fn create_user(&self, body: &CreateUserSchema) -> Result<UserSingleResponse, CreateUserError> {
-      // Step 1: Create user document
     let document = match self.create_user_document(body) {
       Ok(doc) => doc,
       Err(e) => return Err(Report::new(CreateUserError)
         .attach_printable(format!("Failed to create user document: {}", e))),
     };
 
-    // Step 2: Create unique index
     match self.create_unique_index(&self.users, "username").await {
       Ok(_) => {},
       Err(e) => return Err(Report::new(CreateUserError)
         .attach_printable(format!("Failed to create unique index: {}", e))),
     }
 
-    // Step 3: Insert and fetch user
     let user = match self.insert_and_fetch(&self.users, document, |doc| self.doc_to_user(doc).user).await {
       Ok(user) => user,
       Err(e) => return Err(Report::new(CreateUserError)
         .attach_printable(format!("Failed to insert and fetch user: {}", e))),
     };
 
-    // Step 4: Return successful response
     Ok(UserSingleResponse {
       status: "success",
       user,

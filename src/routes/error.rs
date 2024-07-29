@@ -3,7 +3,6 @@ use mongodb::bson;
 use error_stack::Result;
 use std::error::Error;
 
-
 #[derive(Debug)]
 pub struct ConvertToDocError;
 impl std::fmt::Display for ConvertToDocError {
@@ -42,10 +41,9 @@ pub struct CreateUserError;
 
 impl std::fmt::Display for CreateUserError {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.write_str("Create User failed")
+        fmt.write_str("Create User failed, username not unique.")
     }
 }
-
 
 impl std::error::Error for CreateUserError {}
 

@@ -1,6 +1,9 @@
 use axum::{extract::Extension, http::StatusCode, Json, response::IntoResponse};
 use crate::mongo::IOUServiceDB;
-use super::{response::UserSingleResponse, schema::{AuthData, CreateUserSchema, UsernameRequest}, error::{DatabaseError, ErrorResponse}};
+use super::{
+  schema::{AuthData, CreateUserSchema, UsernameRequest},
+  error::{DatabaseError, ErrorResponse}
+};
 use mongodb::bson::doc;
 use uuid::Uuid;
 
@@ -39,21 +42,19 @@ pub async fn get_user_with_username(
 }
 
 #[axum::debug_handler]
-pub async fn create_user(Extension(db): Extension<IOUServiceDB>, Json(payload): Json<CreateUserSchema>) -> Result<Json<UserSingleResponse>, StatusCode> {
-  let new_user = CreateUserSchema {
-    username: payload.username,
-    pubkey: payload.pubkey,
-    nonce: payload.nonce,
-    messages: payload.messages,
-    notes: payload.notes,
-    has_double_spent: payload.has_double_spent,
-  };
-  match db.create_user(&new_user).await {
+pub async fn create_user(
+    Extension(db): Extension<IOUServiceDB>,
+    Json(payload): Json<CreateUserSchema>
+) -> impl IntoResponse {
+  match db.create_user(&payload).await {
     Ok(user_response) => {
       println!("{:#?}", user_response);
-      Ok(Json(user_response))
+      (StatusCode::CREATED, Json(user_response)).into_response()
+    },
+    Err(err) => {
+      let error_message = format!("Failed to create user: {}", err);
+      (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: error_message })).into_response()
     }
-    Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
   }
 }
 
@@ -93,7 +94,7 @@ pub async fn validate_session(
 
   if sessions.get(&session_id).is_some() {
     Ok("authenticated".to_owned())
-} else {
-    Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
-}
+  } else {
+      Err((StatusCode::UNAUTHORIZED, "Unauthorized".to_owned()))
+  }
 }
