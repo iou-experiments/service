@@ -99,6 +99,12 @@ curl -X POST -H "Content-Type: application/json" -d '{"username": "onur", "pubke
 curl -X POST -H "Content-Type: application/json" -d '{"recipient": "sero", "sender": "test", "message": "almost done, world", "attachment_id": "1"}' http://localhost:3000/send_message
 ```
 
+**Read messages:**
+
+```ts
+curl -X POST -H "Content-Type: application/json" -d '{"username": "something"}' http://localhost:3000/read_messages
+```
+
 **Store Nullifier & State:**
 
 Nullifier and state must be unique.

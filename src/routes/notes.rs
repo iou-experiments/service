@@ -12,11 +12,11 @@ pub async fn get_notes(
     Json(payload): Json<NoteRequest>
 ) -> Result<Json<Vec<NoteSchema>>, StatusCode> {
     let notes = db.get_user_notes(&payload.owner_pub_key).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+      .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let filtered_notes = match payload.step {
-        Some(step) => notes.into_iter().filter(|note| note.step == step).collect(),
-        None => notes,
+      Some(step) => notes.into_iter().filter(|note| note.step == step).collect(),
+      None => notes,
     };
 
     Ok(Json(filtered_notes))
