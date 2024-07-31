@@ -13,7 +13,7 @@ use routes::notes::{create_and_transfer_note_history, get_notes, save_note};
 use routes::messages::{send_message, read_user_messages};
 use routes::nullifier::{store_nullifier, verify_nullifier};
 use routes::users::{
-  get_user_with_username,
+  get_user,
   create_user,
   create_and_send_challenge, 
 };
@@ -22,7 +22,7 @@ pub async fn run() {
   let mongo = IOUServiceDB::init().await;
   let app = Router::new()
   // user routes
-  .route("/get_user", get(get_user_with_username))
+  .route("/get_user", get(get_user))
   .route("/create_user", post(create_user))
   // verifier routes
   .route("/verify_nullifier", get(verify_nullifier))

@@ -26,9 +26,21 @@ pub struct CreateUserSchema {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct UsernameRequest {
-    pub username: String,
+pub struct UserRequest {
+  pub identifier: UserIdentifier,
 }
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum UserIdentifier {
+    Username(String),
+    Address(String),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UsernameRequest {
+  pub username: String,
+}
+
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteSchema {

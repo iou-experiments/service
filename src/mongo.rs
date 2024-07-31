@@ -165,7 +165,7 @@ impl IOUServiceDB {
     }
   }
 
-  pub async fn get_user(&self, username: &str) -> Result<UserSingleResponse, DatabaseError> {
+  pub async fn get_user_with_username(&self, username: &str) -> Result<UserSingleResponse, DatabaseError> {
     // Find the user document
     let user_doc = match self.users.find_one(doc! {"username": username}, None).await {
       Ok(Some(doc)) => doc,
@@ -173,6 +173,24 @@ impl IOUServiceDB {
         .attach_printable(format!("User '{}' not found", username))),
       Err(e) => return Err(Report::new(DatabaseError::FetchError)
         .attach_printable(format!("Failed to fetch user '{}': {}", username, e))),
+    };
+
+    let user_res = self.doc_to_user(user_doc);
+
+    Ok(UserSingleResponse {
+      status: "success",
+      user: user_res.user
+    })
+  }
+
+  pub async fn get_user_with_address(&self, address: &str) -> Result<UserSingleResponse, DatabaseError> {
+    // Find the user document
+    let user_doc = match self.users.find_one(doc! {"address": address}, None).await {
+      Ok(Some(doc)) => doc,
+      Ok(None) => return Err(Report::new(DatabaseError::NotFoundError)
+        .attach_printable(format!("User '{}' not found", address))),
+      Err(e) => return Err(Report::new(DatabaseError::FetchError)
+        .attach_printable(format!("Failed to fetch user '{}': {}", address, e))),
     };
 
     let user_res = self.doc_to_user(user_doc);
