@@ -138,7 +138,8 @@ impl IOUServiceDB {
       "nonce": body.nonce.clone(),
       "messages": body.messages.clone(),
       "notes": body.notes.clone(),
-      "has_double_spent": body.has_double_spent
+      "has_double_spent": body.has_double_spent,
+      "address": body.address.clone(),
     };
     
     Ok(user)
