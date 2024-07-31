@@ -150,6 +150,7 @@ impl IOUServiceDB {
       has_double_spent: doc.get_bool("has_double_spent").ok(),
       nonce: doc.get_str("nonce").ok().map(|s| s.to_owned()),
       username: doc.get_str("username").ok().map(|s| s.to_owned()),
+      address: doc.get_str("address").ok().map(|s| s.to_owned()),
       pubkey: doc.get_str("pubkey").ok().map(|s| s.to_owned()),
       messages: doc.get_array("messages").ok().map(|arr| 
         arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
@@ -173,11 +174,11 @@ impl IOUServiceDB {
         .attach_printable(format!("Failed to fetch user '{}': {}", username, e))),
     };
 
-    let user = self.doc_to_user(user_doc);
+    let user_res = self.doc_to_user(user_doc);
 
     Ok(UserSingleResponse {
       status: "success",
-      user: user.user
+      user: user_res.user
     })
   }
 

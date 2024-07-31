@@ -114,7 +114,7 @@ graph TD
 username must be unique
 
 ```ts
-curl -X POST -H "Content-Type: application/json" -d '{"username": "onur", "pubkey": "1234", "nonce": "0", "messages": [], "notes": [], "has_double_spent": false}' http://localhost:3000/create_user
+curl -X POST -H "Content-Type: application/json" -d '{"username": "onur", "pubkey": "1234", "address": "string", "nonce": "0", "messages": [], "notes": [], "has_double_spent": false}' http://localhost:3000/create_user
 ```
 
 **Send messages:**
