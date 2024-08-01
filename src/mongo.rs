@@ -558,7 +558,7 @@ impl IOUServiceDB {
 
   pub async fn create_and_transfer_note_history(
     &self,
-    current_owner_username: &str,
+    current_owner_username: Option<&str>,
     recipient_username: &str,
     body: SaveNoteHistoryRequestSchema,
     message: String,
@@ -569,18 +569,19 @@ impl IOUServiceDB {
     
     let message = MessageRequestSchema {
       recipient: recipient_username.to_owned(),
-      sender: current_owner_username.to_owned(),
+      sender: current_owner_username.unwrap_or("IOU").to_owned(),
       message: message.to_owned(),
       attachment_id: note_id.clone(),
     };
 
-    // remove from owner, send to recipient
-    self.users.update_one(
-      doc! { "username": current_owner_username.to_owned() },
-      doc! { "$pull": { "notes": note_id.clone() } },
-      None,
-    ).await.map_err(|e| Report::new(DatabaseError::UpdateError)
-        .attach_printable(format!("Failed to remove note from current owner: {}", e)))?;
+    if let Some(owner) = current_owner_username {
+      self.users.update_one(
+          doc! { "username": owner.to_owned() },
+          doc! { "$pull": { "notes": note_id.clone() } },
+          None,
+      ).await.map_err(|e| Report::new(DatabaseError::UpdateError)
+          .attach_printable(format!("Failed to remove note from current owner: {}", e)))?;
+    }
 
     match self.users.update_one(
       doc! { "username": recipient_username },

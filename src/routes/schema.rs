@@ -126,7 +126,7 @@ pub struct NoteRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NoteHistoryRequest {
-    pub owner_username: String,
+    pub owner_username: Option<String>,
     pub recipient_username: String,
     pub note_history: SaveNoteHistoryRequestSchema,
     pub message: String,

@@ -49,12 +49,16 @@ pub async fn create_and_transfer_note_history(
 ) -> Result<Json<MessageSingleResponse>, StatusCode> {
   // Call the database function
   let res: MessageSingleResponse = db.create_and_transfer_note_history(
-    &payload.owner_username,
-    &payload.recipient_username,
-    payload.note_history,
-    payload.message,
+      payload.owner_username.as_deref(),  // This converts Option<String> to Option<&str>
+      &payload.recipient_username,
+      payload.note_history,
+      payload.message,
   )
-  .await.expect("couldn't transfer");// Handle errors
+  .await
+  .map_err(|e| {
+      eprintln!("Failed to transfer note: {:?}", e);
+      StatusCode::INTERNAL_SERVER_ERROR
+  })?;
 
-  Ok(Json(res)) 
+  Ok(Json(res))
 }
