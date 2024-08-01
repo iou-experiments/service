@@ -2,8 +2,9 @@ use axum::{extract::Extension, http::StatusCode, Json};
 use crate::mongo::IOUServiceDB;
 use crate::routes::schema::NoteSchema;
 use super::{response::{MessageSingleResponse, NoteResponse}, schema::{
-  NoteHistoryRequest, NoteRequest, SaveNoteRequestSchema
+  NoteHistoryRequest, NoteHistorySaved, NoteRequest, SaveNoteRequestSchema
 }};
+use crate::routes::error::DatabaseError;
 use mongodb::bson::doc;
 
 #[axum::debug_handler]
@@ -61,4 +62,25 @@ pub async fn create_and_transfer_note_history(
   })?;
 
   Ok(Json(res))
+}
+
+pub async fn get_user_note_history(
+  Extension(db): Extension<IOUServiceDB>,
+  axum::extract::Path(username): axum::extract::Path<String>,
+) -> Result<Json<Vec<NoteHistorySaved>>, StatusCode> {
+  match db.get_note_history_for_user(username).await {
+    Ok(notes) => {
+        let response: Vec<NoteHistorySaved> = notes.into_iter()
+            .map(|note| NoteHistorySaved::from(note))
+            .collect();
+        Ok(Json(response))
+    },
+    Err(e) => {
+        eprintln!("Failed to get note history: {:?}", e);
+        match e.current_context() {
+            DatabaseError::NotFoundError => Err(StatusCode::NOT_FOUND),
+            _ => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        }
+    }
+}
 }

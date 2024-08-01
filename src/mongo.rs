@@ -3,7 +3,7 @@ use bson::{doc, Document, Binary, Bson};
 use mongodb::{Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion, IndexOptions }, Client, Collection, IndexModel};
 use std::{sync::{Arc, RwLock}, collections::HashMap, env};
 use crate::routes::{
-  error::{ConvertToDocError, InsertDocumentError, CreateUserError, MyError, DatabaseError},
+  error::{ConvertToDocError, CreateUserError, DatabaseError, InsertDocumentError, MyError},
   response::{
     MessageSingleResponse,
     NoteHistoryResponse,
@@ -13,7 +13,7 @@ use crate::routes::{
     UserSingleResponse
   },
   schema::{
-    ChallengeSchema, NoteHistorySaved, CreateUserSchema, MessageRequestSchema, MessageSchema, SaveNoteHistoryRequestSchema, NoteNullifierSchema, NoteSchema, SaveNoteRequestSchema, User
+    ChallengeSchema, CreateUserSchema, MessageRequestSchema, MessageSchema, NoteHistorySaved, NoteNullifierSchema, NoteSchema, SaveNoteHistoryRequestSchema, SaveNoteRequestSchema, User
   }
 };
 use chrono::Utc;
@@ -22,6 +22,7 @@ use hex;
 use rand::{Rng, distributions::Alphanumeric};
 use ed25519_dalek::{PublicKey, Signature};
 use error_stack::{Report, Result};
+use futures::StreamExt;
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
@@ -554,6 +555,34 @@ impl IOUServiceDB {
       status: "success",
       note_history: note_history
     })
+  }
+
+  pub async fn get_note_history_for_user(&self, username: String) -> Result<Vec<NoteHistorySaved>, DatabaseError> {
+    let user = self.get_user_with_username(&username).await;
+    let note_ids = user.expect("no user").user.notes;
+
+     // Create a stream of note IDs
+     let note_stream = futures::stream::iter(note_ids)
+        .map(Ok::<Vec<std::string::String>, DatabaseError>);
+     // Process each note ID concurrently
+     let notes: Vec<NoteHistorySaved> = note_stream
+         .try_fold(Vec::new(), |mut acc, note_id| async move {
+             let note_doc = self.note_history.find_one(doc! { "_id": note_id.clone() }, None).await
+                 .map_err(|e| Report::new(DatabaseError::NotFoundError)
+                     .attach_printable(format!("Failed to fetch note history: {}", e))).expect("failed")
+                 .ok_or_else(|| Report::new(DatabaseError::NotFoundError)
+                     .attach_printable(format!("Note history not found for ID: {:?}", note_id))).expect("failed");
+ 
+             let note_history: NoteHistorySaved = bson::from_document(note_doc)
+                 .map_err(|e| Report::new(DatabaseError::ConversionError)
+                     .attach_printable(format!("Failed to deserialize note history: {}", e))).expect("failed");
+ 
+             acc.push(note_history);
+             Ok(acc)
+         })
+         .await?;
+ 
+     Ok(notes)
   }
 
   pub async fn create_and_transfer_note_history(
