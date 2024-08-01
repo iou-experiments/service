@@ -1,5 +1,5 @@
 use ark_crypto_primitives::Error;
-use bson::{doc, Document};
+use bson::{doc, Document, Binary, Bson};
 use mongodb::{Cursor, options::{ ClientOptions, FindOptions, ServerApi, ServerApiVersion, IndexOptions }, Client, Collection, IndexModel};
 use std::{sync::{Arc, RwLock}, collections::HashMap, env};
 use crate::routes::{
@@ -13,7 +13,7 @@ use crate::routes::{
     UserSingleResponse
   },
   schema::{
-    ChallengeSchema, CreateUserSchema, MessageRequestSchema, MessageSchema, NoteHistory, NoteNullifierSchema, NoteSchema, SaveNoteRequestSchema, User
+    ChallengeSchema, NoteHistorySaved, CreateUserSchema, MessageRequestSchema, MessageSchema, SaveNoteHistoryRequestSchema, NoteNullifierSchema, NoteSchema, SaveNoteRequestSchema, User
   }
 };
 use chrono::Utc;
@@ -30,7 +30,7 @@ pub struct IOUServiceDB {
   pub notes: Collection<Document>,
   pub notes_collection: Collection<NoteSchema>,
   pub note_history: Collection<Document>,
-  pub note_history_collection: Collection<NoteHistory>,
+  pub note_history_collection: Collection<NoteHistorySaved>,
   pub messages: Collection<Document>,
   pub messages_collection: Collection<MessageSchema>,
   pub nullifiers: Collection<Document>,
@@ -499,25 +499,19 @@ impl IOUServiceDB {
 
   // Notes History
   fn doc_to_note_history(&self, doc: Document) -> NoteHistoryResponse {
-    let current_note = doc.get_document("current_note")
-      .map(|note_doc| self.doc_to_note(note_doc.clone()).note)
-      .expect("Failed to get current_note");
-
-    let note_history = NoteHistory {
-      current_note: SaveNoteRequestSchema{
-        asset_hash: current_note.asset_hash,
-        owner: current_note.owner,
-        value: current_note.value,
-        step: current_note.step,
-        parent_note: current_note.parent_note,
-        out_index: current_note.out_index,
-        blind: current_note.blind,
-      },
-      asset: doc.get_str("asset").ok().map(|s| s.to_owned()).unwrap(),
-      steps: doc.get_array("steps").ok().map(|arr| {
-          arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()
-      }).unwrap_or_else(Vec::new),
-      sibling: doc.get_str("sibling").ok().map(|s| s.to_owned()).unwrap_or_else(String::new),
+    let note_history = NoteHistorySaved {
+      data: doc.get_array("data")
+        .unwrap_or(&Vec::new())
+        .iter()
+        .flat_map(|bson| {
+            match bson {
+                bson::Bson::Binary(binary) => binary.bytes.to_vec(),
+                _ => Vec::new(),
+            }
+        })
+        .collect::<Vec<u8>>(),
+      address: doc.get_str("address").ok().map(|s| s.to_owned()).unwrap_or_else(String::new),
+      _id: doc.get("_id").to_owned().cloned()
     };
 
     NoteHistoryResponse {
@@ -526,18 +520,18 @@ impl IOUServiceDB {
     }
   }
 
-  fn create_note_history_document(&self, body: NoteHistory ) -> Document {
-    let note_history = doc! {
-      "asset": body.asset.clone(),
-      "steps": body.steps,
-      "current_note": self.create_note_document(&body.current_note),
-      "sibling": body.sibling.clone()
-    };
-
-    note_history
+  fn create_note_history_document(&self, body: SaveNoteHistoryRequestSchema) -> Document {
+      let note_history = doc! {
+          "data": Bson::Binary(Binary {
+              subtype: bson::spec::BinarySubtype::Generic,
+              bytes: body.data.clone(),
+          }),
+          "address": body.address.clone()
+      };
+      note_history
   }
 
-  pub async fn store_note_history(&self, body: NoteHistory) -> Result<NoteHistoryResponse, DatabaseError> {
+  pub async fn store_note_history(&self, body: SaveNoteHistoryRequestSchema) -> Result<NoteHistoryResponse, DatabaseError> {
     let document = self.create_note_history_document(body);
 
     let note_history = match self.insert_and_fetch(&self.note_history, document, |doc| self.doc_to_note_history(doc).note_history).await {
@@ -546,9 +540,19 @@ impl IOUServiceDB {
         .attach_printable(format!("Failed to insert and fetch note history: {}", e))),
     };
 
+    match self.users.update_one(
+      doc! { "address": note_history.address.clone() },
+      doc! { "$push": { "notes": note_history._id.clone() } },
+      None,
+    ).await {
+      Ok(_) => {},
+      Err(e) => return Err(Report::new(DatabaseError::UpdateError)
+        .attach_printable(format!("Failed to update user's notes: {}", e))),
+    }
+
     Ok(NoteHistoryResponse {
       status: "success",
-      note_history
+      note_history: note_history
     })
   }
 
@@ -556,20 +560,41 @@ impl IOUServiceDB {
     &self,
     current_owner_username: &str,
     recipient_username: &str,
-    body: NoteHistory,
+    body: SaveNoteHistoryRequestSchema,
     message: String,
-  ) -> MessageSingleResponse {
-    let stored_note = self.store_note(&body.current_note).await;
+  ) -> Result<MessageSingleResponse, DatabaseError> {
+
+    let stored_note = self.store_note_history(body).await;
+    let note_id = stored_note.expect("no note id").note_history._id.clone();
+    
     let message = MessageRequestSchema {
       recipient: recipient_username.to_owned(),
       sender: current_owner_username.to_owned(),
       message: message.to_owned(),
-      attachment_id: stored_note.unwrap().note._id,
+      attachment_id: note_id.clone(),
     };
+
+    // remove from owner, send to recipient
+    self.users.update_one(
+      doc! { "username": current_owner_username.to_owned() },
+      doc! { "$pull": { "notes": note_id.clone() } },
+      None,
+    ).await.map_err(|e| Report::new(DatabaseError::UpdateError)
+        .attach_printable(format!("Failed to remove note from current owner: {}", e)))?;
+
+    match self.users.update_one(
+      doc! { "username": recipient_username },
+      doc! { "$push": { "notes": note_id.clone() } },
+      None,
+    ).await {
+      Ok(_) => {},
+      Err(e) => return Err(Report::new(DatabaseError::UpdateError)
+        .attach_printable(format!("Failed to update user's notes: {}", e))),
+    }
 
     let sent = self.send_message(&message);
 
-    sent.await.expect("msg sent")
+    Ok(sent.await.expect("msg sent"))
   }
 
   //auth & challenges:  NOT IN USE DURING MVP

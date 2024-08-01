@@ -54,7 +54,7 @@ pub async fn create_and_transfer_note_history(
     payload.note_history,
     payload.message,
   )
-  .await;// Handle errors
+  .await.expect("couldn't transfer");// Handle errors
 
   Ok(Json(res)) 
 }
