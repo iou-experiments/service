@@ -91,7 +91,7 @@ pub struct MessageSchema {
     pub sender: String,
     pub message: String,
     pub timestamp: i64,
-    pub attachment_id: String,
+    pub attachment_id: Option<Bson>,
     pub read: bool,
     pub _id: Option<Bson>,
 }

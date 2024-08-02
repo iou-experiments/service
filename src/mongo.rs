@@ -240,7 +240,7 @@ impl IOUServiceDB {
       recipient: doc.get_str("recipient").ok().map(|s| s.to_owned()).unwrap() ,
       message: doc.get_str("message").ok().map(|s| s.to_owned()).unwrap(),
       timestamp: doc.get_i64("timestamp").ok().unwrap(),
-      attachment_id: doc.get_str("attachment_id").ok().map(|s| s.to_owned()).unwrap(),
+      attachment_id: doc.get("attachment_id").to_owned().cloned(),
       read: doc.get_bool("read").ok().unwrap(),
       _id: doc.get("_id").to_owned().cloned()
     };
