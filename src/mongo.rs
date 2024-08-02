@@ -22,7 +22,6 @@ use hex;
 use rand::{Rng, distributions::Alphanumeric};
 use ed25519_dalek::{PublicKey, Signature};
 use error_stack::{Report, Result};
-use futures::StreamExt;
 
 #[derive(Debug, Clone)]
 pub struct IOUServiceDB {
@@ -156,8 +155,15 @@ impl IOUServiceDB {
       pubkey: doc.get_str("pubkey").ok().map(|s| s.to_owned()),
       messages: doc.get_array("messages").ok().map(|arr| 
         arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
-      notes: doc.get_array("notes").ok().map(|arr| 
-        arr.iter().filter_map(|bson| bson.as_str().map(|s| s.to_owned())).collect()),
+      notes: doc.get_array("notes").ok().and_then(|arr| {
+          let object_ids: Option<Vec<bson::oid::ObjectId>> = arr.iter()
+              .map(|bson| match bson {
+                  Bson::ObjectId(oid) => Some(*oid),
+                  _ => None,
+              })
+              .collect();
+          object_ids
+      }),
     };
 
     UserSingleResponse {
@@ -558,31 +564,32 @@ impl IOUServiceDB {
   }
 
   pub async fn get_note_history_for_user(&self, username: String) -> Result<Vec<NoteHistorySaved>, DatabaseError> {
-    let user = self.get_user_with_username(&username).await;
-    let note_ids = user.expect("no user").user.notes;
+    let user = self.get_user_with_username(&username).await
+    .expect("user");
 
-     // Create a stream of note IDs
-     let note_stream = futures::stream::iter(note_ids)
-        .map(Ok::<Vec<std::string::String>, DatabaseError>);
-     // Process each note ID concurrently
-     let notes: Vec<NoteHistorySaved> = note_stream
-         .try_fold(Vec::new(), |mut acc, note_id| async move {
-             let note_doc = self.note_history.find_one(doc! { "_id": note_id.clone() }, None).await
-                 .map_err(|e| Report::new(DatabaseError::NotFoundError)
-                     .attach_printable(format!("Failed to fetch note history: {}", e))).expect("failed")
-                 .ok_or_else(|| Report::new(DatabaseError::NotFoundError)
-                     .attach_printable(format!("Note history not found for ID: {:?}", note_id))).expect("failed");
- 
-             let note_history: NoteHistorySaved = bson::from_document(note_doc)
-                 .map_err(|e| Report::new(DatabaseError::ConversionError)
-                     .attach_printable(format!("Failed to deserialize note history: {}", e))).expect("failed");
- 
-             acc.push(note_history);
-             Ok(acc)
-         })
-         .await?;
- 
-     Ok(notes)
+    let note_ids = user.user.notes.unwrap_or_default();
+    println!("notes, {:#?}", note_ids);
+    let mut notes = Vec::new();
+    for note_id in note_ids {
+      match self.note_history.find_one(doc! { "_id": note_id }, None).await {
+        Ok(Some(doc)) => {
+            let note_history = NoteHistorySaved {
+                data: doc.get_binary_generic("data")
+                    .map(|b| b.clone())
+                    .unwrap_or_default(),
+                address: doc.get_str("address")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                _id: doc.get("_id").cloned(),
+            };
+            notes.push(note_history);
+        },
+        Ok(None) => eprintln!("Note {} not found", note_id),
+        Err(e) => eprintln!("Error finding note {}: {}", note_id, e),
+    }
+    }
+    println!("{:#?}", notes);
+    Ok(notes)
   }
 
   pub async fn create_and_transfer_note_history(

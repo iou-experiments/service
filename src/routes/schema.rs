@@ -10,7 +10,7 @@ pub struct User {
     pub username: Option<String>,
     pub pubkey: Option<String>,
     pub messages: Option<Vec<String>>,
-    pub notes: Option<Vec<String>>,
+    pub notes: Option<Vec<bson::oid::ObjectId>>,
     pub address: Option<String>,
 }
 

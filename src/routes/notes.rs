@@ -2,7 +2,7 @@ use axum::{extract::Extension, http::StatusCode, Json};
 use crate::mongo::IOUServiceDB;
 use crate::routes::schema::NoteSchema;
 use super::{response::{MessageSingleResponse, NoteResponse}, schema::{
-  NoteHistoryRequest, NoteHistorySaved, NoteRequest, SaveNoteRequestSchema
+  NoteHistoryRequest, NoteHistorySaved, NoteRequest, SaveNoteRequestSchema, UsernameRequest
 }};
 use crate::routes::error::DatabaseError;
 use mongodb::bson::doc;
@@ -66,9 +66,9 @@ pub async fn create_and_transfer_note_history(
 
 pub async fn get_user_note_history(
   Extension(db): Extension<IOUServiceDB>,
-  axum::extract::Path(username): axum::extract::Path<String>,
+  Json(payload): Json<UsernameRequest>
 ) -> Result<Json<Vec<NoteHistorySaved>>, StatusCode> {
-  match db.get_note_history_for_user(username).await {
+  match db.get_note_history_for_user(payload.username).await {
     Ok(notes) => {
         let response: Vec<NoteHistorySaved> = notes.into_iter()
             .map(|note| NoteHistorySaved::from(note))
