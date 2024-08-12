@@ -570,6 +570,14 @@ impl IOUServiceDB {
     .expect("user");
 
     let note_ids = user.user.notes.unwrap_or_default();
+
+    // Update the user in the database to remove the notes
+    self.users.update_one(
+      doc! { "username": &username },
+      doc! { "$set": { "notes": [] } },
+      None
+    ).await.expect("couldn't remove notes from user");
+
     let mut notes = Vec::new();
     for note_id in note_ids {
       match self.note_history.find_one(doc! { "_id": note_id }, None).await {
@@ -598,7 +606,7 @@ impl IOUServiceDB {
 
   pub async fn create_and_transfer_note_history(
     &self,
-    current_owner_username: String,
+    owner_username: String,
     recipient_username: &str,
     body: SaveNoteHistoryRequestSchema,
     message: String,
@@ -606,20 +614,20 @@ impl IOUServiceDB {
     let to_save = SaveNoteHistoryRequestSchema {
       data: body.data.clone(),
       address: body.address.clone(),
-      sender: current_owner_username.clone(),
+      sender: owner_username.clone(),
     };
     let stored_note = self.store_note_history(to_save).await;
     let note_id = stored_note.expect("no note id").note_history._id.clone();
     
     let message = MessageRequestSchema {
       recipient: recipient_username.to_owned(),
-      sender: current_owner_username.clone(),
+      sender: owner_username.clone(),
       message: message.to_owned(),
       attachment_id: note_id.clone(),
     };
 
     self.users.update_one(
-      doc! { "username": current_owner_username.to_owned() },
+      doc! { "username": owner_username.to_owned() },
       doc! { "$pull": { "notes": note_id.clone() } },
       None,
     ).await.map_err(|e| Report::new(DatabaseError::UpdateError)
