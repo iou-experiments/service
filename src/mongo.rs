@@ -518,7 +518,8 @@ impl IOUServiceDB {
         })
         .collect::<Vec<u8>>(),
       address: doc.get_str("address").ok().map(|s| s.to_owned()).unwrap_or_else(String::new),
-      _id: doc.get("_id").to_owned().cloned()
+      _id: doc.get("_id").to_owned().cloned(),
+      sender: doc.get_str("sender").ok().map(|s| s.to_owned()).unwrap_or_else(String::new),
     };
 
     NoteHistoryResponse {
@@ -533,7 +534,8 @@ impl IOUServiceDB {
               subtype: bson::spec::BinarySubtype::Generic,
               bytes: body.data.clone(),
           }),
-          "address": body.address.clone()
+          "address": body.address.clone(),
+          "sender": body.sender.clone()
       };
       note_history
   }
@@ -568,7 +570,6 @@ impl IOUServiceDB {
     .expect("user");
 
     let note_ids = user.user.notes.unwrap_or_default();
-    println!("notes, {:#?}", note_ids);
     let mut notes = Vec::new();
     for note_id in note_ids {
       match self.note_history.find_one(doc! { "_id": note_id }, None).await {
@@ -581,6 +582,9 @@ impl IOUServiceDB {
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
                 _id: doc.get("_id").cloned(),
+                sender: doc.get_str("sender")
+                  .map(|s| s.to_string())
+                  .unwrap_or_default(),
             };
             notes.push(note_history);
         },
@@ -594,31 +598,32 @@ impl IOUServiceDB {
 
   pub async fn create_and_transfer_note_history(
     &self,
-    current_owner_username: Option<&str>,
+    current_owner_username: String,
     recipient_username: &str,
     body: SaveNoteHistoryRequestSchema,
     message: String,
   ) -> Result<MessageSingleResponse, DatabaseError> {
-
-    let stored_note = self.store_note_history(body).await;
+    let to_save = SaveNoteHistoryRequestSchema {
+      data: body.data.clone(),
+      address: body.address.clone(),
+      sender: current_owner_username.clone(),
+    };
+    let stored_note = self.store_note_history(to_save).await;
     let note_id = stored_note.expect("no note id").note_history._id.clone();
     
     let message = MessageRequestSchema {
       recipient: recipient_username.to_owned(),
-      sender: current_owner_username.unwrap_or("IOU").to_owned(),
+      sender: current_owner_username.clone(),
       message: message.to_owned(),
       attachment_id: note_id.clone(),
     };
 
-    if let Some(owner) = current_owner_username {
-      self.users.update_one(
-          doc! { "username": owner.to_owned() },
-          doc! { "$pull": { "notes": note_id.clone() } },
-          None,
-      ).await.map_err(|e| Report::new(DatabaseError::UpdateError)
-          .attach_printable(format!("Failed to remove note from current owner: {}", e)))?;
-    }
-
+    self.users.update_one(
+      doc! { "username": current_owner_username.to_owned() },
+      doc! { "$pull": { "notes": note_id.clone() } },
+      None,
+    ).await.map_err(|e| Report::new(DatabaseError::UpdateError)
+      .attach_printable(format!("Failed to remove note from current owner: {}", e)))?;
     match self.users.update_one(
       doc! { "username": recipient_username },
       doc! { "$push": { "notes": note_id.clone() } },

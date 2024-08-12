@@ -69,10 +69,12 @@ pub struct SaveNoteRequestSchema {
 pub struct SaveNoteHistoryRequestSchema {
     pub data: Vec<u8>,
     pub address: String,
+    pub sender: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct NoteHistorySaved {
+    pub sender: String,
     pub data: Vec<u8>,
     pub address: String,
     pub _id: Option<Bson>,
@@ -126,7 +128,7 @@ pub struct NoteRequest {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct NoteHistoryRequest {
-    pub owner_username: Option<String>,
+    pub owner_username: String,
     pub recipient_username: String,
     pub note_history: SaveNoteHistoryRequestSchema,
     pub message: String,

@@ -50,7 +50,7 @@ pub async fn create_and_transfer_note_history(
 ) -> Result<Json<MessageSingleResponse>, StatusCode> {
   // Call the database function
   let res: MessageSingleResponse = db.create_and_transfer_note_history(
-      payload.owner_username.as_deref(),  // This converts Option<String> to Option<&str>
+      payload.owner_username,  // This converts Option<String> to Option<&str>
       &payload.recipient_username,
       payload.note_history,
       payload.message,
