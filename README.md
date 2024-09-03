@@ -1,4 +1,4 @@
-## Specification (WIP):
+## Specification:
 https://hackmd.io/@THkehD-JRa6LxfeK0QB2pw/rkLVvK5DA
 
 ## IOU Service with Double-Spending Prevention
