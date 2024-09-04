@@ -18,7 +18,7 @@ ark-serialize = {version = "^0.4.0", default-features = false}
 ark-std = {version = "^0.4.0", default-features = false}
 arkeddsa = {git = "https://github.com/kilic/arkeddsa"}
 rand = "0.8"
-tower-http = { version = "0.4", features = ["cors"] }
+tower-http = { version = "0.5.2", features = ["cors"] }
 rand_core = {version = "0.6", default-features = false}
 sha2 = {version = "0.10", default-features = false}
 axum = { version = "0.7.5", features = ["macros"] }

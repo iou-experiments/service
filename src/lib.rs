@@ -1,3 +1,5 @@
+pub mod routes;
+pub mod mongo;
 use axum::{
     routing::{post, get},
     Router,
@@ -9,21 +11,17 @@ use routes::notes::{create_and_transfer_note_history, get_notes, save_note, get_
 use routes::messages::{send_message, read_user_messages};
 use routes::nullifier::{store_nullifier, verify_nullifier};
 use routes::users::{
-    get_user,
-    create_user,
-    create_and_send_challenge, 
+  get_user,
+  create_user,
+  create_and_send_challenge, 
 };
 
 pub async fn run() {
     let mongo = IOUServiceDB::init().await;
 
-    // Configure CORS
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+    let cors = CorsLayer::new().allow_origin(Any);
 
-    let app = Router::new()
+    let app = Router::new()  // Add the CORS middleware
         // user routes
         .route("/get_user", post(get_user))  // Changed to POST as per your frontend
         .route("/create_user", post(create_user))
@@ -44,8 +42,9 @@ pub async fn run() {
         .route("/get_note_history_for_user", get(get_user_note_history))
         // fallback, state, and db
         .fallback(handler_404)
-        .layer(Extension(mongo))
-        .layer(cors);  // Add the CORS middleware
+        .layer(cors)
+        .layer(Extension(mongo));
+
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:80").await.unwrap();
     println!("Listening on http://0.0.0.0:80");
