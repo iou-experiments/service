@@ -19,7 +19,7 @@ use routes::users::{
 pub async fn run() {
     let mongo = IOUServiceDB::init().await;
 
-    let cors = CorsLayer::new().allow_origin(Any);
+    let cors = CorsLayer::new().allow_origin(Any).allow_methods([http::Method::GET, http::Method::POST]);
 
     let app = Router::new()  // Add the CORS middleware
         // user routes

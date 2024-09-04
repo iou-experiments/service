@@ -1962,6 +1962,7 @@ dependencies = [
  "error-stack",
  "futures",
  "hex",
+ "http",
  "log",
  "mongodb",
  "rand 0.8.5",
